@@ -135,11 +135,26 @@ message ColumnEncoding {
   optional uint32 bloomEncoding = 3;
 }
 
+message StripeEncryption {
+  // the footer for each key
+  repeated StripeFooter footer = 1;
+}
+
 message StripeFooter {
   repeated Stream streams = 1;
   repeated ColumnEncoding columns = 2;
   optional string writerTimezone = 3;
+  optional StripeEncryption encryption = 4;
 }
+
+// the file tail looks like:
+//   encryption alternative 1..N:
+//     stripe statistics: Metadata
+//     column statistics: ColumnStatistics
+//   stripe statistics: Metadata
+//   footer: Footer
+//   postscript: PostScript
+//   psLen: byte
 
 message Type {
   enum Kind {
@@ -176,6 +191,9 @@ message StripeInformation {
   optional uint64 dataLength = 3;
   optional uint64 footerLength = 4;
   optional uint64 numberOfRows = 5;
+  // the number of encrypted bytes for each key in this stripe
+  repeated uint64 encryptedIndexLength = 6 [packed=true];
+  repeated uint64 encryptedDataLength = 7 [packed=true];
 }
 
 message UserMetadataItem {
@@ -189,6 +207,54 @@ message StripeStatistics {
 
 message Metadata {
   repeated StripeStatistics stripeStats = 1;
+}
+
+// How was the data masked? This isn't necessary for reading the file, but
+// is documentation about how the file was written.
+message DataMask {
+  // the kind of masking, which may include third party masks
+  optional string name = 1;
+  // parameters for the mask
+  repeated string maskParameters = 2;
+}
+
+enum EncryptionAlgorithm {
+  UNKNOWN_ENCRYPTION = 0;  // used for detecting future algorithms
+  AES_128 = 1;
+  AES_256 = 2;
+}
+
+message EncryptedFileStatistics {
+  repeated ColumnStatistics column = 1;
+}
+
+message EncryptionKey {
+  optional EncryptionAlgorithm algorithm = 1;
+  optional string keyName = 2;
+  optional uint32 keyVersion = 3;
+
+  // The list of column ids where the original value is encrypted with
+  // this key.
+  repeated uint32 rootId = 4 [packed = true];
+  
+  // How each column above was masked without encryption. This is an
+  // index into the Encryption.mask list.
+  repeated uint32 unencryptedMask = 5 [packed = true];
+
+  // The IV for decrypting the local key is built by concatenating:
+  //   a. the column id (3 bytes)
+  //   b. the keyIV (rest of IV, so typically 13 bytes)
+  // This field repeats to support concatenated files.
+  repeated bytes keyIv = 6;
+}
+
+message Encryption {
+  // all of the masks used in this file
+  repeated DataMask mask = 1;
+  repeated EncryptionKey key = 2;
+
+  // the encrypted file statistics one per a key
+  repeated bytes fileStatistics = 3;
 }
 
 message Footer {
@@ -207,6 +273,12 @@ message Footer {
   // 2 = Presto
   // 3 = Scritchley Go from https://github.com/scritchley/orc
   optional uint32 writer = 9;
+
+  // information about the encryption in this file
+  optional Encryption encryption = 10;
+  // The list of stripe indexes that were originally first stripes
+  // before the stripes were merged together.
+  repeated uint32 firstStripes = 11 [packed = true];;
 }
 
 enum CompressionKind {
@@ -242,10 +314,11 @@ message PostScript {
   //   1 = HIVE-8732 fixed (fixed stripe/file maximum statistics &
   //                        string statistics use utf8 for min/max)
   //   2 = HIVE-4243 fixed (use real column names from Hive tables)
-  //   3 = HIVE-12055 fixed (vectorized writer implementation)
+  //   3 = HIVE-12055 added (vectorized writer implementation)
   //   4 = HIVE-13083 fixed (decimals write present stream correctly)
   //   5 = ORC-101 fixed (bloom filters use utf8 consistently)
   //   6 = ORC-135 fixed (timestamp statistics use utc)
+  //   7 = ORC-14 added (column encryption)
   //
   // Version of the ORC C++ writer:
   //   6 = original

@@ -20,6 +20,7 @@ package org.apache.orc.impl;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.security.Key;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -42,6 +43,9 @@ import org.apache.orc.PhysicalWriter;
 import org.apache.orc.StripeInformation;
 import org.apache.orc.TypeDescription;
 import org.apache.orc.Writer;
+import org.apache.orc.impl.writer.ColumnEncryption;
+import org.apache.orc.impl.writer.EncryptionKey;
+import org.apache.orc.impl.writer.MaskDescription;
 import org.apache.orc.impl.writer.TreeWriter;
 import org.apache.orc.impl.writer.WriterContext;
 import org.slf4j.Logger;
@@ -75,6 +79,7 @@ import com.google.protobuf.ByteString;
 public class WriterImpl implements Writer, MemoryManager.Callback {
 
   private static final Logger LOG = LoggerFactory.getLogger(WriterImpl.class);
+  private static final HadoopShims SHIMS = HadoopShimsFactory.get();
 
   private static final int MIN_ROW_INDEX_STRIDE = 1000;
 
@@ -97,6 +102,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     new ArrayList<>();
   private final OrcProto.Metadata.Builder fileMetadata =
       OrcProto.Metadata.newBuilder();
+  private final List<OrcProto.ColumnStatistics.Builder>[] fileStatistics;
   private final Map<String, ByteString> userMetadata =
     new TreeMap<>();
   private final TreeWriter treeWriter;
@@ -112,6 +118,9 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   private final double bloomFilterFpp;
   private final OrcFile.BloomFilterVersion bloomFilterVersion;
   private final boolean writeTimeZone;
+  private final List<MaskDescription> masks = new ArrayList<>();
+  private final Map<String,EncryptionKey> keys = new TreeMap<>();
+  private final ColumnEncryption[] encryption;
 
   public WriterImpl(FileSystem fs,
                     Path path,
@@ -168,12 +177,29 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     this.physicalWriter = opts.getPhysicalWriter() == null ?
         new PhysicalFsWriter(fs, path, opts) : opts.getPhysicalWriter();
     physicalWriter.writeHeader();
+    // Do we have column encryption?
+    List<OrcFile.EncryptionOption> encryptionOptions = opts.getEncryption();
+    if (encryptionOptions.isEmpty()) {
+      fileId = null;
+      encryption = null;
+    } else {
+      encryption = new ColumnEncryption[schema.getMaximumId() + 1];
+      setupEncryption(opts.getKeyProvider(), encryptionOptions);
+    }
+
+    // set up fileStatistics with one per a key (and index 0 for unencrypted)
+    @SuppressWarnings("unchecked")
+    List<OrcProto.ColumnStatistics.Builder>[] tmp =
+        (List<OrcProto.ColumnStatistics.Builder>[]) new List[keys.size() + 1];
+    fileStatistics = tmp;
+    for(int k=0; k < fileStatistics.length; ++k) {
+      fileStatistics[k] = new ArrayList<>();
+    }
     treeWriter = TreeWriter.Factory.create(schema, new StreamFactory(), false);
     if (buildIndex && rowIndexStride < MIN_ROW_INDEX_STRIDE) {
       throw new IllegalArgumentException("Row stride must be at least " +
           MIN_ROW_INDEX_STRIDE);
     }
-
     // ensure that we are able to handle callbacks before we register ourselves
     memoryManager.addWriter(path, opts.getStripeSize(), this);
     LOG.info("ORC writer created for path: {} with stripeSize: {} blockSize: {}" +
@@ -265,47 +291,12 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     return false;
   }
 
-
-  CompressionCodec getCustomizedCodec(OrcProto.Stream.Kind kind) {
-    // TODO: modify may create a new codec here. We want to end() it when the stream is closed,
-    //       but at this point there's no close() for the stream.
-    CompressionCodec result = physicalWriter.getCompressionCodec();
-    if (result != null) {
-      switch (kind) {
-        case BLOOM_FILTER:
-        case DATA:
-        case DICTIONARY_DATA:
-        case BLOOM_FILTER_UTF8:
-          if (compressionStrategy == OrcFile.CompressionStrategy.SPEED) {
-            result = result.modify(EnumSet.of(CompressionCodec.Modifier.FAST,
-                CompressionCodec.Modifier.TEXT));
-          } else {
-            result = result.modify(EnumSet.of(CompressionCodec.Modifier.DEFAULT,
-                CompressionCodec.Modifier.TEXT));
-          }
-          break;
-        case LENGTH:
-        case DICTIONARY_COUNT:
-        case PRESENT:
-        case ROW_INDEX:
-        case SECONDARY:
-          // easily compressed using the fastest modes
-          result = result.modify(EnumSet.of(CompressionCodec.Modifier.FASTEST,
-              CompressionCodec.Modifier.BINARY));
-          break;
-        default:
-          LOG.info("Missing ORC compression modifiers for " + kind);
-          break;
-      }
-    }
-    return result;
-  }
-
   /**
    * Interface from the Writer to the TreeWriters. This limits the visibility
    * that the TreeWriters have into the Writer.
    */
   private class StreamFactory implements WriterContext {
+
     /**
      * Create a stream to store part of a column.
      * @param column the column id for the stream
@@ -318,8 +309,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       final StreamName name = new StreamName(column, kind);
       CompressionCodec codec = getCustomizedCodec(kind);
 
-      return new OutStream(physicalWriter.toString(), bufferSize, codec,
-          physicalWriter.createDataStream(name));
+      return new OutStream(name, bufferSize, codec,
+          null, null, physicalWriter.createDataStream(name));
     }
 
     /**
@@ -399,6 +390,68 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       physicalWriter.writeBloomFilter(name, bloom,
           getCustomizedCodec(name.getKind()));
     }
+
+    @Override
+    public int getBufferSize() {
+      return bufferSize;
+    }
+
+    @Override
+    public PhysicalWriter.OutputReceiver getReceiver(StreamName name
+                                                     ) throws IOException {
+      return physicalWriter.createDataStream(name);
+    }
+
+    @Override
+    public CompressionCodec getCustomizedCodec(OrcProto.Stream.Kind kind) {
+      // TODO: modify may create a new codec here. We want to end() it when the stream is closed,
+      //       but at this point there's no close() for the stream.
+      CompressionCodec result = physicalWriter.getCompressionCodec();
+      if (result != null) {
+        switch (kind) {
+          case BLOOM_FILTER:
+          case DATA:
+          case DICTIONARY_DATA:
+          case BLOOM_FILTER_UTF8:
+            if (compressionStrategy == OrcFile.CompressionStrategy.SPEED) {
+              result = result.modify(EnumSet.of(CompressionCodec.Modifier.FAST,
+                  CompressionCodec.Modifier.TEXT));
+            } else {
+              result = result.modify(EnumSet.of(CompressionCodec.Modifier.DEFAULT,
+                  CompressionCodec.Modifier.TEXT));
+            }
+            break;
+          case LENGTH:
+          case DICTIONARY_COUNT:
+          case PRESENT:
+          case ROW_INDEX:
+          case SECONDARY:
+            // easily compressed using the fastest modes
+            result = result.modify(EnumSet.of(CompressionCodec.Modifier.FASTEST,
+                CompressionCodec.Modifier.BINARY));
+            break;
+          default:
+            LOG.info("Missing ORC compression modifiers for " + kind);
+            break;
+        }
+      }
+      return result;
+    }
+
+    @Override
+    public ColumnEncryption getEncryption(int columnId) {
+      return encryption == null ? null : encryption[columnId];
+    }
+
+    @Override
+    public EncryptionKey getKey() {
+      return EncryptionKey.UNENCRYPTED;
+    }
+
+    @Override
+    public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
+      fileStatistics[getKey().getId() + 1].add(stats);
+    }
   }
 
 
@@ -458,9 +511,11 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
   }
 
-  private void writeFileStatistics(OrcProto.Footer.Builder builder,
-                                   TreeWriter writer) throws IOException {
-    writer.writeFileStatistics(builder);
+  private void collectFileStatistics(TreeWriter writer) throws IOException {
+    for (List<OrcProto.ColumnStatistics.Builder> stats : fileStatistics) {
+      stats.clear();
+    }
+    writer.writeFileStatistics();
   }
 
   private void writeMetadata() throws IOException {
@@ -481,6 +536,95 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     return physicalWriter.writePostScript(builder);
   }
 
+  private MaskDescription[] sortMasks(List<MaskDescription> masks) {
+    MaskDescription[] result = new MaskDescription[masks.size()];
+    for(MaskDescription mask: masks) {
+      result[mask.getId()] = mask;
+    }
+    return result;
+  }
+
+  private EncryptionKey[] sortKeys(Map<String,EncryptionKey> keys) {
+    EncryptionKey[] results = new EncryptionKey[keys.size()];
+    for(EncryptionKey key: keys.values()) {
+      results[key.getId()] = key;
+    }
+    return results;
+  }
+
+  private static final class BufferCollector implements PhysicalWriter.OutputReceiver {
+    private final List<ByteBuffer> output = new ArrayList<>();
+
+    @Override
+    public void output(ByteBuffer buffer) {
+      output.add(buffer);
+    }
+
+    @Override
+    public void suppress() {
+      output.clear();
+    }
+
+    ByteString toByteString() {
+      int length = 0;
+      for(ByteBuffer buf: output) {
+        length += buf.remaining();
+      }
+      ByteString bs = null;
+    }
+  }
+
+  private OrcProto.EncryptionKey writeKey(EncryptionKey key) {
+    OrcProto.EncryptionKey.Builder result = OrcProto.EncryptionKey.newBuilder();
+    HadoopShims.KeyMetadata meta = key.getKeyVersion();
+    result.setKeyName(meta.getKeyName());
+    result.setKeyVersion(meta.getVersion());
+    result.setAlgorithm(OrcProto.EncryptionAlgorithm.valueOf(
+        meta.getAlgorithm().getSerialization()));
+    for(ColumnEncryption column: key.getRoots()) {
+      result.addRootId(column.getRoot());
+      result.addUnencryptedMask(column.getUnencryptedMask().getId());
+    }
+    return result.build();
+  }
+
+  private ByteString encryptFileStats(CompressionCodec codec,
+                                      EncryptionKey key,
+                                      List<OrcProto.ColumnStatistics.Builder> stats
+                                      ) throws IOException {
+    BufferCollector buffer = new BufferCollector();
+    ColumnEncryption ce = key.getRoots().get(0);
+    new OutStream(new StreamName("file stats"), bufferSize, codec,
+        key.getKeyVersion().getAlgorithm(),
+        ce.getMaterial(), buffer);
+  }
+
+  private void writeEncryptionFooter(OrcProto.Footer.Builder builder) {
+    OrcProto.Encryption.Builder encrypt = OrcProto.Encryption.newBuilder();
+    encrypt.setFileId(ByteString.copyFrom(fileId));
+    for(MaskDescription mask: sortMasks(masks)) {
+      OrcProto.DataMask.Builder maskBuilder = OrcProto.DataMask.newBuilder();
+      maskBuilder.setName(mask.getStyle());
+      String[] params = mask.getParameters();
+      if (params != null) {
+        for(String param: params) {
+          maskBuilder.addMaskParameters(param);
+        }
+      }
+      encrypt.addMask(maskBuilder);
+    }
+    EncryptionKey[] keysList = sortKeys(keys);
+    for(EncryptionKey key: keysList) {
+      encrypt.addKey(writeKey(key));
+    }
+    CompressionCodec codec = getCompressionCodec();
+    for(int k = 1; k < fileStatistics.length; ++k) {
+      encrypt.addFileStatistics(encryptFileStats(codec, keysList[k - 1],
+          fileStatistics[k]));
+    }
+    builder.setEncryption(encrypt);
+  }
+
   private long writeFooter() throws IOException {
     writeMetadata();
     OrcProto.Footer.Builder builder = OrcProto.Footer.newBuilder();
@@ -494,11 +638,18 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       builder.addStripes(stripe);
     }
     // add the column statistics
-    writeFileStatistics(builder, treeWriter);
+    collectFileStatistics(treeWriter);
+    // add the unencrypted stats
+    for(OrcProto.ColumnStatistics.Builder stat: fileStatistics[0]) {
+      builder.addStatistics(stat);
+    }
     // add all of the user metadata
     for(Map.Entry<String, ByteString> entry: userMetadata.entrySet()) {
       builder.addMetadata(OrcProto.UserMetadataItem.newBuilder()
         .setName(entry.getKey()).setValue(entry.getValue()));
+    }
+    if (encryption != null) {
+      writeEncryptionFooter(builder);
     }
     builder.setWriter(OrcFile.WriterImplementation.ORC_JAVA.getId());
     physicalWriter.writeFileFooter(builder);
@@ -641,7 +792,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     OrcProto.Footer.Builder builder = OrcProto.Footer.newBuilder();
 
     // add the column statistics
-    writeFileStatistics(builder, treeWriter);
+    collectFileStatistics(treeWriter);
     return ReaderImpl.deserializeStats(builder.getStatisticsList());
   }
 
@@ -662,5 +813,54 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       }
     }
     return false;
+  }
+
+  EncryptionKey getKey(String keyName,
+                       HadoopShims.KeyProvider provider) throws IOException {
+    EncryptionKey result = keys.get(keyName);
+    if (result == null) {
+      HadoopShims.KeyMetadata keyVersion =
+          provider.getCurrentKeyVersion(keyName);
+      result = new EncryptionKey(keyVersion, keys.size());
+      keys.put(keyName, result);
+    }
+    return result;
+  }
+
+  MaskDescription getMask(OrcFile.EncryptionOption opt) {
+    MaskDescription result = new MaskDescription(opt.getMask(),
+        masks.size(), opt.getMaskParameters());
+    int index = masks.indexOf(result);
+    if (index != -1) {
+      return masks.get(index);
+    } else {
+      masks.add(result);
+      return result;
+    }
+  }
+
+  /**
+   * Iterate through the encryption options given by the user and set up
+   * our data structures.
+   * @param provider the KeyProvider to use to generate keys
+   * @param options the options from the user
+   */
+  void setupEncryption(HadoopShims.KeyProvider provider,
+                       List<OrcFile.EncryptionOption> options) throws IOException {
+    if (provider == null) {
+      provider = SHIMS.getKeyProvider(conf);
+    }
+    // fill out the primary encryption keys
+    for(OrcFile.EncryptionOption option: options) {
+      EncryptionKey key = getKey(option.getKeyName(), provider);
+      MaskDescription mask = getMask(option);
+      int root = option.getColumnId();
+      byte[] keyIv = CryptoUtils.createIvForPassword(key.getKeyVersion().getAlgorithm(), fileId, root);
+      Key material = provider.getLocalKey(key.getKeyVersion(), keyIv);
+      ColumnEncryption column =
+          new ColumnEncryption(key, root, mask, material);
+      key.addRoot(column);
+      encryption[root] = column;
+    }
   }
 }

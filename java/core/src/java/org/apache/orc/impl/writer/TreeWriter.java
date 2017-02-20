@@ -24,6 +24,7 @@ import org.apache.orc.OrcProto;
 import org.apache.orc.TypeDescription;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * The writers for the specific writers of each type. This provides
@@ -91,70 +92,74 @@ public interface TreeWriter {
 
   /**
    * Add the file statistics to the file footer.
-   * @param footer the file footer builder
+   * The TreeWriter should use the WriterContext to write it out.
    */
-  void writeFileStatistics(OrcProto.Footer.Builder footer);
+  void writeFileStatistics();
 
   public class Factory {
     public static TreeWriter create(TypeDescription schema,
                                     WriterContext streamFactory,
                                     boolean nullable) throws IOException {
-      switch (schema.getCategory()) {
-        case BOOLEAN:
-          return new BooleanTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case BYTE:
-          return new ByteTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case SHORT:
-        case INT:
-        case LONG:
-          return new IntegerTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case FLOAT:
-          return new FloatTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case DOUBLE:
-          return new DoubleTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case STRING:
-          return new StringTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case CHAR:
-          return new CharTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case VARCHAR:
-          return new VarcharTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case BINARY:
-          return new BinaryTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case TIMESTAMP:
-          return new TimestampTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case DATE:
-          return new DateTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case DECIMAL:
-          return new DecimalTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case STRUCT:
-          return new StructTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case MAP:
-          return new MapTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case LIST:
-          return new ListTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        case UNION:
-          return new UnionTreeWriter(schema.getId(),
-              schema, streamFactory, nullable);
-        default:
-          throw new IllegalArgumentException("Bad category: " +
-              schema.getCategory());
+      int columnId = schema.getId();
+      if (streamFactory.getEncryption(columnId) != null) {
+        return new EncryptionTreeWriter(columnId, schema, streamFactory);
+      } else {
+        switch (schema.getCategory()) {
+          case BOOLEAN:
+            return new BooleanTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case BYTE:
+            return new ByteTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case SHORT:
+          case INT:
+          case LONG:
+            return new IntegerTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case FLOAT:
+            return new FloatTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case DOUBLE:
+            return new DoubleTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case STRING:
+            return new StringTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case CHAR:
+            return new CharTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case VARCHAR:
+            return new VarcharTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case BINARY:
+            return new BinaryTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case TIMESTAMP:
+            return new TimestampTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case DATE:
+            return new DateTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case DECIMAL:
+            return new DecimalTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case STRUCT:
+            return new StructTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case MAP:
+            return new MapTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case LIST:
+            return new ListTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          case UNION:
+            return new UnionTreeWriter(columnId,
+                schema, streamFactory, nullable);
+          default:
+            throw new IllegalArgumentException("Bad category: " +
+                schema.getCategory());
+        }
       }
     }
-
   }
 }

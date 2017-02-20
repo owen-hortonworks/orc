@@ -63,35 +63,35 @@ public abstract class TreeWriterBase implements TreeWriter {
   protected final OrcProto.BloomFilter.Builder bloomFilterEntry;
   private boolean foundNulls;
   private OutStream isPresentOutStream;
-  private final WriterContext streamFactory;
+  protected final WriterContext context;
 
   /**
    * Create a tree writer.
    * @param columnId the column id of the column to write
    * @param schema the row schema
-   * @param streamFactory limited access to the Writer's data.
+   * @param context limited access to the Writer's data.
    * @param nullable can the value be null?
    */
   TreeWriterBase(int columnId,
                  TypeDescription schema,
-                 WriterContext streamFactory,
+                 WriterContext context,
                  boolean nullable) throws IOException {
-    this.streamFactory = streamFactory;
-    this.isCompressed = streamFactory.isCompressed();
+    this.context = context;
+    this.isCompressed = context.isCompressed();
     this.id = columnId;
     if (nullable) {
-      isPresentOutStream = streamFactory.createStream(id,
+      isPresentOutStream = context.createStream(id,
           OrcProto.Stream.Kind.PRESENT);
       isPresent = new BitFieldWriter(isPresentOutStream, 1);
     } else {
       isPresent = null;
     }
     this.foundNulls = false;
-    createBloomFilter = streamFactory.getBloomFilterColumns()[columnId];
+    createBloomFilter = context.getBloomFilterColumns()[columnId];
     indexStatistics = ColumnStatisticsImpl.create(schema);
     stripeColStatistics = ColumnStatisticsImpl.create(schema);
     fileStatistics = ColumnStatisticsImpl.create(schema);
-    if (streamFactory.buildIndex()) {
+    if (context.buildIndex()) {
       rowIndex = OrcProto.RowIndex.newBuilder();
       rowIndexEntry = OrcProto.RowIndexEntry.newBuilder();
       rowIndexPosition = new RowIndexPositionRecorder(rowIndexEntry);
@@ -102,16 +102,16 @@ public abstract class TreeWriterBase implements TreeWriter {
     }
     if (createBloomFilter) {
       bloomFilterEntry = OrcProto.BloomFilter.newBuilder();
-      if (streamFactory.getBloomFilterVersion() == OrcFile.BloomFilterVersion.ORIGINAL) {
-        bloomFilter = new BloomFilter(streamFactory.getRowIndexStride(),
-            streamFactory.getBloomFilterFPP());
+      if (context.getBloomFilterVersion() == OrcFile.BloomFilterVersion.ORIGINAL) {
+        bloomFilter = new BloomFilter(context.getRowIndexStride(),
+            context.getBloomFilterFPP());
         bloomFilterIndex = OrcProto.BloomFilterIndex.newBuilder();
       } else {
         bloomFilter = null;
         bloomFilterIndex = null;
       }
-      bloomFilterUtf8 = new BloomFilterUtf8(streamFactory.getRowIndexStride(),
-          streamFactory.getBloomFilterFPP());
+      bloomFilterUtf8 = new BloomFilterUtf8(context.getRowIndexStride(),
+          context.getBloomFilterFPP());
       bloomFilterIndexUtf8 = OrcProto.BloomFilterIndex.newBuilder();
     } else {
       bloomFilterEntry = null;
@@ -262,20 +262,20 @@ public abstract class TreeWriterBase implements TreeWriter {
              "index entries found: " + rowIndex.getEntryCount() + " expected: " +
              requiredIndexEntries);
       }
-      streamFactory.writeIndex(new StreamName(id, OrcProto.Stream.Kind.ROW_INDEX), rowIndex);
+      context.writeIndex(new StreamName(id, OrcProto.Stream.Kind.ROW_INDEX), rowIndex);
       rowIndex.clear();
       rowIndexEntry.clear();
     }
 
     // write the bloom filter to out stream
     if (bloomFilterIndex != null) {
-      streamFactory.writeBloomFilter(new StreamName(id,
+      context.writeBloomFilter(new StreamName(id,
           OrcProto.Stream.Kind.BLOOM_FILTER), bloomFilterIndex);
       bloomFilterIndex.clear();
     }
     // write the bloom filter to out stream
     if (bloomFilterIndexUtf8 != null) {
-      streamFactory.writeBloomFilter(new StreamName(id,
+      context.writeBloomFilter(new StreamName(id,
           OrcProto.Stream.Kind.BLOOM_FILTER_UTF8), bloomFilterIndexUtf8);
       bloomFilterIndexUtf8.clear();
     }
@@ -354,8 +354,8 @@ public abstract class TreeWriterBase implements TreeWriter {
   }
 
   @Override
-  public void writeFileStatistics(OrcProto.Footer.Builder footer) {
-    footer.addStatistics(fileStatistics.serialize());
+  public void writeFileStatistics() {
+    context.writeFileStatistics(id, fileStatistics.serialize());
   }
 
   static class RowIndexPositionRecorder implements PositionRecorder {

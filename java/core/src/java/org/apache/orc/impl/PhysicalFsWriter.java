@@ -320,32 +320,88 @@ public class PhysicalFsWriter implements PhysicalWriter {
                              ) throws IOException {
     long indexSize = 0;
     long dataSize = 0;
+    long encryptedIndexSize = 0;
+    long encryptedDataSize = 0;
+    int lastKey = StreamName.UNENCRYPTED;
+    OrcProto.StripeEncryption.Builder encryption = null;
+    OrcProto.StripeFooter.Builder encryptedFooter = null;
     for (Map.Entry<StreamName, BufferedStream> pair: streams.entrySet()) {
       BufferedStream receiver = pair.getValue();
       if (!receiver.isSuppressed) {
         long streamSize = receiver.getOutputSize();
         StreamName name = pair.getKey();
-        footerBuilder.addStreams(OrcProto.Stream.newBuilder().setColumn(name.getColumn())
-            .setKind(name.getKind()).setLength(streamSize));
-        if (StreamName.Area.INDEX == name.getArea()) {
-          indexSize += streamSize;
+        OrcProto.Stream stream = OrcProto.Stream.newBuilder()
+            .setColumn(name.getColumn())
+            .setKind(name.getKind())
+            .setLength(streamSize).build();
+        if (name.isEncrypted()) {
+          int currentKey = name.getKey();
+          if (lastKey != currentKey) {
+            if (lastKey != StreamName.UNENCRYPTED) {
+              dirEntry.addEncryptedDataLength(encryptedDataSize)
+                  .addEncryptedIndexLength(encryptedIndexSize);
+              encryption.addFooter(encryptedFooter);
+            } else {
+              encryption = footerBuilder.getEncryptionBuilder();
+            }
+            encryptedFooter = encryption.getFooterBuilder(currentKey);
+            lastKey = currentKey;
+          }
+          encryptedFooter.addStreams(stream);
         } else {
-          dataSize += streamSize;
+          footerBuilder.addStreams(stream);
+        }
+        switch (name.getArea()) {
+          case DATA:
+            dataSize += streamSize;
+            break;
+          case INDEX:
+            indexSize += streamSize;
+            break;
+          case ENCRYPTED_DATA:
+            encryptedDataSize += streamSize;
+            break;
+          case ENCRYPTED_INDEX:
+            encryptedIndexSize += streamSize;
+            break;
+          default:
+            throw new IllegalArgumentException("Unknown area " + name.getArea());
         }
       }
     }
-    dirEntry.setIndexLength(indexSize).setDataLength(dataSize);
+    dirEntry
+        .setIndexLength(indexSize)
+        .setDataLength(dataSize);
+
+    if (encryption != null) {
+      encryption.addFooter(encryptedFooter);
+      footerBuilder.setEncryption(encryption);
+      dirEntry
+          .addEncryptedIndexLength(encryptedIndexSize)
+          .addEncryptedDataLength(encryptedDataSize);
+    }
 
     OrcProto.StripeFooter footer = footerBuilder.build();
     // Do we need to pad the file so the stripe doesn't straddle a block boundary?
-    padStripe(indexSize, dataSize, footer.getSerializedSize());
+    padStripe(indexSize + encryptedIndexSize, dataSize + encryptedDataSize,
+        footer.getSerializedSize());
 
-    // write out the data streams
+    // write out the unencrypted streams
     for (Map.Entry<StreamName, BufferedStream> pair : streams.entrySet()) {
-      pair.getValue().spillToDiskAndClear(rawWriter);
+      if (!pair.getKey().isEncrypted()) {
+        pair.getValue().spillToDiskAndClear(rawWriter);
+      }
     }
+
     // Write out the footer.
     writeStripeFooter(footer, dataSize, indexSize, dirEntry);
+
+    // write out the encrypted streams
+    for (Map.Entry<StreamName, BufferedStream> pair : streams.entrySet()) {
+      if (pair.getKey().isEncrypted()) {
+        pair.getValue().spillToDiskAndClear(rawWriter);
+      }
+    }
   }
 
   @Override

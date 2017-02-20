@@ -24,22 +24,43 @@ import org.apache.orc.OrcProto;
  * The name of a stream within a stripe.
  */
 public class StreamName implements Comparable<StreamName> {
+  public static final int UNENCRYPTED = -1;
+  private final String name;
   private final int column;
   private final OrcProto.Stream.Kind kind;
+  private final int key;
 
-  public static enum Area {
-    DATA, INDEX
+  public enum Area {
+    DATA, INDEX, ENCRYPTED_DATA, ENCRYPTED_INDEX, FOOTER
+  }
+
+  public StreamName(String name) {
+    this(name, -1, null, UNENCRYPTED);
   }
 
   public StreamName(int column, OrcProto.Stream.Kind kind) {
+    this(null, column, kind, UNENCRYPTED);
+  }
+
+  public StreamName(int column, OrcProto.Stream.Kind kind, int key) {
+    this(null, column, kind, key);
+  }
+
+  StreamName(String name, int column, OrcProto.Stream.Kind kind, int key) {
+    this.name = name;
     this.column = column;
     this.kind = kind;
+    this.key = key;
   }
 
   public boolean equals(Object obj) {
     if (obj != null && obj instanceof  StreamName) {
       StreamName other = (StreamName) obj;
-      return other.column == column && other.kind == kind;
+      if (name != null) {
+        return other.name != null && name.equals(other.name);
+      } else {
+        return other.key == key && other.column == column && other.kind == kind;
+      }
     } else {
       return false;
     }
@@ -50,12 +71,16 @@ public class StreamName implements Comparable<StreamName> {
     if (streamName == null) {
       return -1;
     }
-    Area area = getArea(kind);
-    Area otherArea = streamName.getArea(streamName.kind);
+    if (key != streamName.key) {
+      return key < streamName.key ? -1 : 1;
+    }
+    Area area = getArea();
+    Area otherArea = streamName.getArea();
     if (area != otherArea) {
       return otherArea.compareTo(area);
-    }
-    if (column != streamName.column) {
+    } else if (area == Area.FOOTER) {
+      return name.compareTo(streamName.name);
+    } else if (column != streamName.column) {
       return column < streamName.column ? -1 : 1;
     }
     return kind.compareTo(streamName.kind);
@@ -70,29 +95,56 @@ public class StreamName implements Comparable<StreamName> {
   }
 
   public Area getArea() {
-    return getArea(kind);
+    return getArea(kind, key);
   }
 
   public static Area getArea(OrcProto.Stream.Kind kind) {
-    switch (kind) {
-      case ROW_INDEX:
-      case DICTIONARY_COUNT:
-      case BLOOM_FILTER:
-      case BLOOM_FILTER_UTF8:
-        return Area.INDEX;
-      default:
-        return Area.DATA;
+    return getArea(kind, UNENCRYPTED);
+  }
+
+  public static Area getArea(OrcProto.Stream.Kind kind, int encrypted) {
+    if (kind == null) {
+      return Area.FOOTER;
+    } else {
+      switch (kind) {
+        case ROW_INDEX:
+        case DICTIONARY_COUNT:
+        case BLOOM_FILTER:
+        case BLOOM_FILTER_UTF8:
+          return encrypted == UNENCRYPTED ? Area.INDEX : Area.ENCRYPTED_INDEX;
+        default:
+          return encrypted == UNENCRYPTED ? Area.DATA : Area.ENCRYPTED_DATA;
+      }
     }
   }
 
   @Override
   public String toString() {
-    return "Stream for column " + column + " kind " + kind;
+    if (name != null) {
+      return name;
+    } else if (key == UNENCRYPTED) {
+      return "Stream for column " + column + " kind " + kind;
+    } else {
+      return "Stream for column " + column + " kind " + kind + " encryption key: "
+          + key;
+    }
   }
 
   @Override
   public int hashCode() {
-    return column * 101 + kind.getNumber();
+    if (name != null) {
+      return name.hashCode();
+    } else {
+      return column * 101 + kind.getNumber() + key * 104729;
+    }
+  }
+
+  public int getKey() {
+    return key;
+  }
+
+  public boolean isEncrypted() {
+    return key != UNENCRYPTED;
   }
 }
 

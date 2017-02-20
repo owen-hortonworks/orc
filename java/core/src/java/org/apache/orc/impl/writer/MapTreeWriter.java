@@ -165,9 +165,9 @@ public class MapTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeFileStatistics(OrcProto.Footer.Builder footer) {
-    super.writeFileStatistics(footer);
-    keyWriter.writeFileStatistics(footer);
-    valueWriter.writeFileStatistics(footer);
+  public void writeFileStatistics() {
+    super.writeFileStatistics();
+    keyWriter.writeFileStatistics();
+    valueWriter.writeFileStatistics();
   }
 }

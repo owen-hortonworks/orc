@@ -19,12 +19,16 @@
 package org.apache.orc.impl.writer;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.orc.CompressionCodec;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
+import org.apache.orc.PhysicalWriter;
 import org.apache.orc.impl.OutStream;
 import org.apache.orc.impl.StreamName;
 
 import java.io.IOException;
+import java.security.Key;
+import java.util.List;
 
 public interface WriterContext {
 
@@ -92,4 +96,34 @@ public interface WriterContext {
     void writeBloomFilter(StreamName name,
                           OrcProto.BloomFilterIndex.Builder bloom
                           ) throws IOException;
+
+  int getBufferSize();
+
+  PhysicalWriter.OutputReceiver getReceiver(StreamName name) throws IOException;
+
+  /**
+   * Get a compression codec for the given stream kind.
+   * @param kind the kind of the stream
+   * @return a codec for compression
+   */
+  CompressionCodec getCustomizedCodec(OrcProto.Stream.Kind kind);
+
+  /**
+   * Get the encryption rooted at the given column.
+   * @param columnId the given column
+   */
+  ColumnEncryption getEncryption(int columnId);
+
+  /**
+   * Get the encryption key that this subtree is using.
+   * @return the encryption key
+   */
+  EncryptionKey getKey();
+
+  /**
+   * Write the column statistics for the file tail.
+   * @param column
+   * @param stats
+   */
+  void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats);
 }

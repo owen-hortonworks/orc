@@ -48,6 +48,7 @@ public interface PhysicalWriter {
      */
     void suppress();
   }
+
   /**
    * Writes the header of the file, which consists of the magic "ORC" bytes.
    * @throws IOException
