@@ -26,12 +26,12 @@ import java.security.Key;
 public class ColumnEncryption {
   private final EncryptionKey key;
   private final int root;
-  private final MaskDescription unencryptedMask;
+  private final int unencryptedMask;
   private final Key material;
 
   public ColumnEncryption(EncryptionKey key,
                           int columnId,
-                          MaskDescription mask,
+                          int mask,
                           Key columnKey) throws IOException {
     this.key = key;
     this.root = columnId;
@@ -47,7 +47,7 @@ public class ColumnEncryption {
     return root;
   }
 
-  public MaskDescription getUnencryptedMask() {
+  public int getUnencryptedMask() {
     return unencryptedMask;
   }
 

@@ -24,8 +24,7 @@ import org.apache.orc.OrcProto;
  * The name of a stream within a stripe.
  */
 public class StreamName implements Comparable<StreamName> {
-  public static final int UNENCRYPTED = -1;
-  private final String name;
+  public static final int UNENCRYPTED = 0;
   private final int column;
   private final OrcProto.Stream.Kind kind;
   private final int key;
@@ -34,20 +33,11 @@ public class StreamName implements Comparable<StreamName> {
     DATA, INDEX, ENCRYPTED_DATA, ENCRYPTED_INDEX, FOOTER
   }
 
-  public StreamName(String name) {
-    this(name, -1, null, UNENCRYPTED);
-  }
-
   public StreamName(int column, OrcProto.Stream.Kind kind) {
-    this(null, column, kind, UNENCRYPTED);
+    this(column, kind, UNENCRYPTED);
   }
 
   public StreamName(int column, OrcProto.Stream.Kind kind, int key) {
-    this(null, column, kind, key);
-  }
-
-  StreamName(String name, int column, OrcProto.Stream.Kind kind, int key) {
-    this.name = name;
     this.column = column;
     this.kind = kind;
     this.key = key;
@@ -56,11 +46,7 @@ public class StreamName implements Comparable<StreamName> {
   public boolean equals(Object obj) {
     if (obj != null && obj instanceof  StreamName) {
       StreamName other = (StreamName) obj;
-      if (name != null) {
-        return other.name != null && name.equals(other.name);
-      } else {
-        return other.key == key && other.column == column && other.kind == kind;
-      }
+      return other.key == key && other.column == column && other.kind == kind;
     } else {
       return false;
     }
@@ -78,8 +64,6 @@ public class StreamName implements Comparable<StreamName> {
     Area otherArea = streamName.getArea();
     if (area != otherArea) {
       return otherArea.compareTo(area);
-    } else if (area == Area.FOOTER) {
-      return name.compareTo(streamName.name);
     } else if (column != streamName.column) {
       return column < streamName.column ? -1 : 1;
     }
@@ -103,26 +87,23 @@ public class StreamName implements Comparable<StreamName> {
   }
 
   public static Area getArea(OrcProto.Stream.Kind kind, int encrypted) {
-    if (kind == null) {
-      return Area.FOOTER;
-    } else {
-      switch (kind) {
-        case ROW_INDEX:
-        case DICTIONARY_COUNT:
-        case BLOOM_FILTER:
-        case BLOOM_FILTER_UTF8:
-          return encrypted == UNENCRYPTED ? Area.INDEX : Area.ENCRYPTED_INDEX;
-        default:
-          return encrypted == UNENCRYPTED ? Area.DATA : Area.ENCRYPTED_DATA;
-      }
+    switch (kind) {
+      case FILE_STATISTICS:
+      case STRIPE_STATISTICS:
+        return Area.FOOTER;
+      case ROW_INDEX:
+      case DICTIONARY_COUNT:
+      case BLOOM_FILTER:
+      case BLOOM_FILTER_UTF8:
+        return encrypted == UNENCRYPTED ? Area.INDEX : Area.ENCRYPTED_INDEX;
+      default:
+        return encrypted == UNENCRYPTED ? Area.DATA : Area.ENCRYPTED_DATA;
     }
   }
 
   @Override
   public String toString() {
-    if (name != null) {
-      return name;
-    } else if (key == UNENCRYPTED) {
+    if (key == UNENCRYPTED) {
       return "Stream for column " + column + " kind " + kind;
     } else {
       return "Stream for column " + column + " kind " + kind + " encryption key: "
@@ -132,11 +113,7 @@ public class StreamName implements Comparable<StreamName> {
 
   @Override
   public int hashCode() {
-    if (name != null) {
-      return name.hashCode();
-    } else {
-      return column * 101 + kind.getNumber() + key * 104729;
-    }
+    return column * 101 + kind.getNumber() + key * 104729;
   }
 
   public int getKey() {

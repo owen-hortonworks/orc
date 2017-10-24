@@ -20,9 +20,11 @@ package org.apache.orc.impl.writer;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.orc.CompressionCodec;
+import org.apache.orc.DataMask;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
+import org.apache.orc.TypeDescription;
 import org.apache.orc.impl.OutStream;
 import org.apache.orc.impl.StreamName;
 
@@ -33,69 +35,69 @@ import java.util.List;
 public interface WriterContext {
 
   /**
-     * Create a stream to store part of a column.
-     * @param column the column id for the stream
-     * @param kind the kind of stream
-     * @return The output outStream that the section needs to be written to.
-     */
-    OutStream createStream(int column,
-                           OrcProto.Stream.Kind kind
-                           ) throws IOException;
+   * Create a stream to store part of a column.
+   * @param column the column id for the stream
+   * @param kind the kind of stream
+   * @return The output outStream that the section needs to be written to.
+   */
+  OutStream createStream(int column,
+                         OrcProto.Stream.Kind kind
+  ) throws IOException;
 
-    /**
-     * Get the stride rate of the row index.
-     */
-    int getRowIndexStride();
+  /**
+   * Get the stride rate of the row index.
+   */
+  int getRowIndexStride();
 
-    /**
-     * Should be building the row index.
-     * @return true if we are building the index
-     */
-    boolean buildIndex();
+  /**
+   * Should be building the row index.
+   * @return true if we are building the index
+   */
+  boolean buildIndex();
 
-    /**
-     * Is the ORC file compressed?
-     * @return are the streams compressed
-     */
-    boolean isCompressed();
+  /**
+   * Is the ORC file compressed?
+   * @return are the streams compressed
+   */
+  boolean isCompressed();
 
-    /**
-     * Get the encoding strategy to use.
-     * @return encoding strategy
-     */
-    OrcFile.EncodingStrategy getEncodingStrategy();
+  /**
+   * Get the encoding strategy to use.
+   * @return encoding strategy
+   */
+  OrcFile.EncodingStrategy getEncodingStrategy();
 
-    /**
-     * Get the bloom filter columns
-     * @return bloom filter columns
-     */
-    boolean[] getBloomFilterColumns();
+  /**
+   * Get the bloom filter columns
+   * @return bloom filter columns
+   */
+  boolean[] getBloomFilterColumns();
 
-    /**
-     * Get bloom filter false positive percentage.
-     * @return fpp
-     */
-    double getBloomFilterFPP();
+  /**
+   * Get bloom filter false positive percentage.
+   * @return fpp
+   */
+  double getBloomFilterFPP();
 
-    /**
-     * Get the writer's configuration.
-     * @return configuration
-     */
-    Configuration getConfiguration();
+  /**
+   * Get the writer's configuration.
+   * @return configuration
+   */
+  Configuration getConfiguration();
 
-    /**
-     * Get the version of the file to write.
-     */
-    OrcFile.Version getVersion();
+  /**
+   * Get the version of the file to write.
+   */
+  OrcFile.Version getVersion();
 
-    OrcFile.BloomFilterVersion getBloomFilterVersion();
+  OrcFile.BloomFilterVersion getBloomFilterVersion();
 
-    void writeIndex(StreamName name,
-                    OrcProto.RowIndex.Builder index) throws IOException;
+  void writeIndex(StreamName name,
+                  OrcProto.RowIndex.Builder index) throws IOException;
 
-    void writeBloomFilter(StreamName name,
-                          OrcProto.BloomFilterIndex.Builder bloom
-                          ) throws IOException;
+  void writeBloomFilter(StreamName name,
+                        OrcProto.BloomFilterIndex.Builder bloom
+                        ) throws IOException;
 
   int getBufferSize();
 
@@ -115,6 +117,11 @@ public interface WriterContext {
   ColumnEncryption getEncryption(int columnId);
 
   /**
+   * Create a data mask
+   */
+  DataMask createMask(int maskId, TypeDescription schema);
+
+  /**
    * Get the encryption key that this subtree is using.
    * @return the encryption key
    */
@@ -126,4 +133,10 @@ public interface WriterContext {
    * @param stats
    */
   void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats);
+
+  /**
+   * Get the PhysicalWriter.
+   * @return the file's physical writer.
+   */
+  PhysicalWriter getPhysicalWriter();
 }

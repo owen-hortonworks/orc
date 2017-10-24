@@ -6,11 +6,9 @@ import org.apache.orc.DataMask;
 public class MaskDescription {
   private final String mask;
   private final String[] parameters;
-  private final int id;
 
-  public MaskDescription(String mask, int id, String... parameters) {
+  public MaskDescription(String mask, String... parameters) {
     this.mask = mask;
-    this.id = id;
     this.parameters = parameters;
   }
 
@@ -56,10 +54,6 @@ public class MaskDescription {
 
   public String[] getParameters() {
     return parameters;
-  }
-
-  public int getId() {
-    return id;
   }
 
   public DataMask create(TypeDescription schema) {

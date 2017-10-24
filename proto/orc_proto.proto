@@ -113,6 +113,12 @@ message Stream {
     ROW_INDEX = 6;
     BLOOM_FILTER = 7;
     BLOOM_FILTER_UTF8 = 8;
+
+    // footer streams, we need these ids for encryption
+    STRIPE_FOOTER = 15000;
+    STRIPE_STATISTICS = 15001;
+    FILE_STATISTICS = 15002;
+    FILE_FOOTER = 15003;
   }
   optional Kind kind = 1;
   optional uint32 column = 2;

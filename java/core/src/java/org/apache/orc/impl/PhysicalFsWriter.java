@@ -36,6 +36,7 @@ import org.apache.orc.CompressionKind;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
+import org.apache.orc.impl.writer.ColumnEncryption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,10 +48,11 @@ public class PhysicalFsWriter implements PhysicalWriter {
   private static final HadoopShims shims = HadoopShimsFactory.get();
 
   private final FSDataOutputStream rawWriter;
+  private final DirectStream rawStream;
   // the compressed metadata information outStream
-  private OutStream writer = null;
+  private OutStream stripeFooterWriter = null;
   // a protobuf outStream around streamFactory
-  private CodedOutputStream protobufWriter = null;
+  private CodedOutputStream stripeFooterStream = null;
 
   private final Path path;
   private final long blockSize;
@@ -94,9 +96,11 @@ public class PhysicalFsWriter implements PhysicalWriter {
     rawWriter = fs.create(path, opts.getOverwrite(), HDFS_BUFFER_SIZE,
         fs.getDefaultReplication(path), blockSize);
     codec = OrcCodecPool.getCodec(compress);
-    writer = new OutStream("metadata", bufferSize, codec,
-        new DirectStream(rawWriter));
-    protobufWriter = CodedOutputStream.newInstance(writer);
+    rawStream = new DirectStream(rawWriter);
+    stripeFooterWriter =
+        new OutStream(new StreamName(0, OrcProto.Stream.Kind.STRIPE_FOOTER),
+            bufferSize, codec, null, rawStream);
+    stripeFooterStream = CodedOutputStream.newInstance(stripeFooterWriter);
   }
 
   @Override
@@ -177,9 +181,9 @@ public class PhysicalFsWriter implements PhysicalWriter {
                                  long dataSize,
                                  long indexSize,
                                  OrcProto.StripeInformation.Builder dirEntry) throws IOException {
-    footer.writeTo(protobufWriter);
-    protobufWriter.flush();
-    writer.flush();
+    footer.writeTo(stripeFooterStream);
+    stripeFooterStream.flush();
+    stripeFooterWriter.flush();
     dirEntry.setOffset(stripeStart);
     dirEntry.setFooterLength(rawWriter.getPos() - stripeStart - dataSize - indexSize);
   }
@@ -187,9 +191,11 @@ public class PhysicalFsWriter implements PhysicalWriter {
   @Override
   public void writeFileMetadata(OrcProto.Metadata.Builder builder) throws IOException {
     long startPosn = rawWriter.getPos();
+    OutStream writer =
+        new OutStream(new StreamName(0, OrcProto.Stream.Kind.STRIPE_STATISTICS),
+            bufferSize, codec, null, rawStream);
     OrcProto.Metadata metadata = builder.build();
-    metadata.writeTo(protobufWriter);
-    protobufWriter.flush();
+    metadata.writeTo(writer);
     writer.flush();
     this.metadataLength = (int) (rawWriter.getPos() - startPosn);
   }
@@ -201,8 +207,10 @@ public class PhysicalFsWriter implements PhysicalWriter {
     builder.setHeaderLength(headerLength);
     long startPosn = rawWriter.getPos();
     OrcProto.Footer footer = builder.build();
-    footer.writeTo(protobufWriter);
-    protobufWriter.flush();
+    OutStream writer =
+        new OutStream(new StreamName(0, OrcProto.Stream.Kind.FILE_FOOTER),
+            bufferSize, codec, null, rawStream);
+    footer.writeTo(writer);
     writer.flush();
     this.footerLength = (int) (rawWriter.getPos() - startPosn);
   }
@@ -423,8 +431,9 @@ public class PhysicalFsWriter implements PhysicalWriter {
   @Override
   public void writeIndex(StreamName name,
                          OrcProto.RowIndex.Builder index,
-                         CompressionCodec codec) throws IOException {
-    OutputStream stream = new OutStream(path.toString(), bufferSize, codec,
+                         CompressionCodec codec,
+                         ColumnEncryption key) throws IOException {
+    OutputStream stream = new OutStream(name, bufferSize, codec, key,
         createDataStream(name));
     index.build().writeTo(stream);
     stream.flush();
@@ -433,8 +442,9 @@ public class PhysicalFsWriter implements PhysicalWriter {
   @Override
   public void writeBloomFilter(StreamName name,
                                OrcProto.BloomFilterIndex.Builder bloom,
-                               CompressionCodec codec) throws IOException {
-    OutputStream stream = new OutStream(path.toString(), bufferSize, codec,
+                               CompressionCodec codec,
+                               ColumnEncryption key) throws IOException {
+    OutputStream stream = new OutStream(name, bufferSize, codec, key,
         createDataStream(name));
     bloom.build().writeTo(stream);
     stream.flush();

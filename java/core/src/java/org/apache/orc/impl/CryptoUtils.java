@@ -33,6 +33,7 @@ public class CryptoUtils {
   private static final int COLUMN_ID_LENGTH = 3;
   private static final int KIND_LENGTH = 2;
   private static final int STRIPE_ID_LENGTH = 3;
+  private static final int MIN_COUNT_BYTES = 8;
 
   private static final SecureRandom random = new SecureRandom();
   static final int MAX_COLUMN = 0xffffff;
@@ -40,30 +41,34 @@ public class CryptoUtils {
   static final int MAX_STRIPE = 0xffffff;
 
   /**
-   * Create a random file id.
+   * Create a random initialization vector (IV) for a given algorithm.
    * @param algorithm the encryption algorithm
    * @return a new set of random bytes
    */
-  public static byte[] createFileId(EncryptionAlgorithm algorithm) {
-    byte[] fileId = new byte[algorithm.getIvLength() - COLUMN_ID_LENGTH];
-    random.nextBytes(fileId);
-    return fileId;
+  public static byte[] createKeyIv(EncryptionAlgorithm algorithm) {
+    byte[] result = new byte[algorithm.getIvLength() - COLUMN_ID_LENGTH];
+    random.nextBytes(result);
+    return result;
   }
 
   /**
    * Create the iv for the column password.
    * @param algorithm the encryption algorithm
-   * @param fileId the random file id
+   * @param keyIv the random keyIv
    * @param columnId the column
    * @return a new array with the encrypted password
    */
   static byte[] createIvForPassword(EncryptionAlgorithm algorithm,
-                                    byte[] fileId, int columnId) {
+                                    byte[] keyIv, int columnId) {
+    if (columnId < 0 || columnId > MAX_COLUMN) {
+      throw new IllegalArgumentException("ORC encryption is limited to " +
+          MAX_COLUMN + " columns. Value = " + columnId);
+    }
     byte[] result = new byte[algorithm.getIvLength()];
     result[0] = (byte) (columnId >> 16);
     result[1] = (byte) (columnId >> 8);
     result[2] = (byte) (columnId);
-    System.arraycopy(fileId, 0, result, COLUMN_ID_LENGTH, fileId.length);
+    System.arraycopy(keyIv, 0, result, COLUMN_ID_LENGTH, keyIv.length);
     return result;
   }
 
@@ -91,6 +96,10 @@ public class CryptoUtils {
       throw new IllegalArgumentException("ORC encryption is limited to " +
           MAX_STRIPE + " stripes. Value = " + stripeId);
     }
+    // the rest of the iv is used for counting within the stream
+    if (iv.length - (COLUMN_ID_LENGTH + KIND_LENGTH + STRIPE_ID_LENGTH) < MIN_COUNT_BYTES) {
+      throw new IllegalArgumentException("Not enough space in the iv for the count");
+    }
     iv[0] = (byte)(columnId >> 16);
     iv[1] = (byte)(columnId >> 8);
     iv[2] = (byte)columnId;
@@ -99,10 +108,6 @@ public class CryptoUtils {
     iv[COLUMN_ID_LENGTH+KIND_LENGTH] = (byte)(stripeId >> 16);
     iv[COLUMN_ID_LENGTH+KIND_LENGTH+1] = (byte)(stripeId >> 8);
     iv[COLUMN_ID_LENGTH+KIND_LENGTH+2] = (byte)stripeId;
-    // the rest of the iv is used for counting within the stream
-    if (iv.length - (COLUMN_ID_LENGTH + KIND_LENGTH + STRIPE_ID_LENGTH) < 8) {
-      throw new IllegalArgumentException("Not enough space in the iv for the count");
-    }
     return iv;
   }
 }

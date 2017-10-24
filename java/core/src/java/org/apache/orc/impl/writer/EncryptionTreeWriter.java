@@ -27,7 +27,6 @@ import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
 import org.apache.orc.TypeDescription;
-import org.apache.orc.impl.HadoopShims;
 import org.apache.orc.impl.OutStream;
 import org.apache.orc.impl.StreamName;
 
@@ -62,7 +61,8 @@ public class EncryptionTreeWriter implements TreeWriter {
         new EncryptionWriterContext(context, columnEncryption), true);
 
     // masked unencrypted
-    masks[1] = columnEncryption.getUnencryptedMask().create(schema);
+    masks[1] = context.createMask(columnEncryption.getUnencryptedMask(),
+        schema.findSubtype(columnId));
     keys[1] = null;
     childrenWriters[1] = Factory.create(schema,
         new EncryptionWriterContext(context, null), true);
@@ -173,10 +173,8 @@ public class EncryptionTreeWriter implements TreeWriter {
       } else {
         final StreamName name = new StreamName(column, kind, key.getId());
         CompressionCodec codec = getCustomizedCodec(kind);
-        HadoopShims.KeyMetadata keyMetadata = key.getKeyVersion();
         return new OutStream(name, getBufferSize(), codec,
-            keyMetadata.getAlgorithm(),
-            encryption.getMaterial(),
+            encryption.getKey(), encryption.getMaterial(),
             getReceiver(name));
       }
     }
@@ -228,12 +226,15 @@ public class EncryptionTreeWriter implements TreeWriter {
 
     @Override
     public void writeIndex(StreamName name, OrcProto.RowIndex.Builder index) throws IOException {
-      parent.writeIndex(name, index);
+      parent.getPhysicalWriter().writeIndex(name, index,
+          getCustomizedCodec(name.getKind()), encryption);
     }
 
     @Override
-    public void writeBloomFilter(StreamName name, OrcProto.BloomFilterIndex.Builder bloom) throws IOException {
-      parent.writeBloomFilter(name, bloom);
+    public void writeBloomFilter(StreamName name,
+                                 OrcProto.BloomFilterIndex.Builder bloom) throws IOException {
+      parent.getPhysicalWriter().writeBloomFilter(name, bloom,
+          getCustomizedCodec(name.getKind()), encryption);
     }
 
     @Override
@@ -258,6 +259,11 @@ public class EncryptionTreeWriter implements TreeWriter {
     }
 
     @Override
+    public DataMask createMask(int maskId, TypeDescription schema) {
+      return null;
+    }
+
+    @Override
     public EncryptionKey getKey() {
       return encryption == null ?
           EncryptionKey.UNENCRYPTED :
@@ -267,6 +273,11 @@ public class EncryptionTreeWriter implements TreeWriter {
     @Override
     public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
 
+    }
+
+    @Override
+    public PhysicalWriter getPhysicalWriter() {
+      return parent.getPhysicalWriter();
     }
   }
 }

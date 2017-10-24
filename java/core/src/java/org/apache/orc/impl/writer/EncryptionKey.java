@@ -22,27 +22,40 @@ import org.apache.orc.impl.CryptoUtils;
 import org.apache.orc.impl.HadoopShims;
 import org.apache.orc.impl.StreamName;
 
+import java.io.IOException;
+import java.security.Key;
 import java.util.ArrayList;
 import java.util.List;
 
 public class EncryptionKey {
-  private final HadoopShims.KeyMetadata keyVersion;
+  private final HadoopShims.KeyMetadata metadata;
   private final List<ColumnEncryption> roots = new ArrayList<>();
   private final int id;
-  private final byte[] fileId;
+  private final byte[] keyIv;
+  private Key fileStatsKey;
 
-  public EncryptionKey(HadoopShims.KeyMetadata keyVersion, int id) {
-    this.keyVersion = keyVersion;
+  public EncryptionKey(HadoopShims.KeyProvider provider,
+                       String keyName,
+                       int id) throws IOException {
     this.id = id;
-    fileId = CryptoUtils.createFileId(keyVersion.getAlgorithm());
+    if (provider != null) {
+      this.metadata = provider.getCurrentKeyVersion(keyName);
+      this.fileStatsKey = provider.getLocalKey(metadata,
+          CryptoUtils.createKeyIv(metadata.getAlgorithm()));
+      keyIv = CryptoUtils.createKeyIv(metadata.getAlgorithm());
+    } else {
+      this.metadata = null;
+      this.fileStatsKey = null;
+      this.keyIv = null;
+    }
   }
 
   public void addRoot(ColumnEncryption root) {
     roots.add(root);
   }
 
-  public HadoopShims.KeyMetadata getKeyVersion() {
-    return keyVersion;
+  public HadoopShims.KeyMetadata getMetadata() {
+    return metadata;
   }
 
   public List<ColumnEncryption> getRoots() {
@@ -53,6 +66,21 @@ public class EncryptionKey {
     return id;
   }
 
-  public static final EncryptionKey UNENCRYPTED =
-      new EncryptionKey(null, StreamName.UNENCRYPTED);
+  public byte[] getKeyIv() {
+    return keyIv;
+  }
+
+  public Key getFileStatsKey() {
+    return fileStatsKey;
+  }
+
+  public static final EncryptionKey UNENCRYPTED;
+
+  static {
+    try {
+      UNENCRYPTED = new EncryptionKey(null, null, StreamName.UNENCRYPTED);
+    } catch (IOException e) {
+      throw new IllegalStateException("Problem creating unencrypted key", e);
+    }
+  }
 }

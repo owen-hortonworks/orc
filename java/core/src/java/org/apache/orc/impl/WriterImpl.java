@@ -23,8 +23,10 @@ import java.nio.ByteBuffer;
 import java.security.Key;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeMap;
 
@@ -35,6 +37,7 @@ import io.airlift.compress.lzo.LzoDecompressor;
 import org.apache.orc.ColumnStatistics;
 import org.apache.orc.CompressionCodec;
 import org.apache.orc.CompressionKind;
+import org.apache.orc.DataMask;
 import org.apache.orc.MemoryManager;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
@@ -118,8 +121,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   private final double bloomFilterFpp;
   private final OrcFile.BloomFilterVersion bloomFilterVersion;
   private final boolean writeTimeZone;
-  private final List<MaskDescription> masks = new ArrayList<>();
-  private final Map<String,EncryptionKey> keys = new TreeMap<>();
+  private MaskDescription[] masks;
+  private EncryptionKey[] keys;
   private final ColumnEncryption[] encryption;
 
   public WriterImpl(FileSystem fs,
@@ -180,7 +183,6 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     // Do we have column encryption?
     List<OrcFile.EncryptionOption> encryptionOptions = opts.getEncryption();
     if (encryptionOptions.isEmpty()) {
-      fileId = null;
       encryption = null;
     } else {
       encryption = new ColumnEncryption[schema.getMaximumId() + 1];
@@ -190,7 +192,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     // set up fileStatistics with one per a key (and index 0 for unencrypted)
     @SuppressWarnings("unchecked")
     List<OrcProto.ColumnStatistics.Builder>[] tmp =
-        (List<OrcProto.ColumnStatistics.Builder>[]) new List[keys.size() + 1];
+        (List<OrcProto.ColumnStatistics.Builder>[]) new List[keys.length];
     fileStatistics = tmp;
     for(int k=0; k < fileStatistics.length; ++k) {
       fileStatistics[k] = new ArrayList<>();
@@ -309,8 +311,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       final StreamName name = new StreamName(column, kind);
       CompressionCodec codec = getCustomizedCodec(kind);
 
-      return new OutStream(name, bufferSize, codec,
-          null, null, physicalWriter.createDataStream(name));
+      return new OutStream(name, bufferSize, codec, null,
+          physicalWriter.createDataStream(name));
     }
 
     /**
@@ -381,14 +383,14 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
 
     public void writeIndex(StreamName name,
                            OrcProto.RowIndex.Builder index) throws IOException {
-      physicalWriter.writeIndex(name, index, getCustomizedCodec(name.getKind()));
+      physicalWriter.writeIndex(name, index, getCustomizedCodec(name.getKind()), null);
     }
 
     public void writeBloomFilter(StreamName name,
                                  OrcProto.BloomFilterIndex.Builder bloom
                                  ) throws IOException {
       physicalWriter.writeBloomFilter(name, bloom,
-          getCustomizedCodec(name.getKind()));
+          getCustomizedCodec(name.getKind()), null);
     }
 
     @Override
@@ -448,9 +450,18 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       return EncryptionKey.UNENCRYPTED;
     }
 
+    public DataMask createMask(int maskId, TypeDescription schema) {
+      return masks[maskId].create(schema);
+    }
+
     @Override
     public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
       fileStatistics[getKey().getId() + 1].add(stats);
+    }
+
+    @Override
+    public PhysicalWriter getPhysicalWriter() {
+      return physicalWriter;
     }
   }
 
@@ -536,73 +547,62 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     return physicalWriter.writePostScript(builder);
   }
 
-  private MaskDescription[] sortMasks(List<MaskDescription> masks) {
-    MaskDescription[] result = new MaskDescription[masks.size()];
-    for(MaskDescription mask: masks) {
-      result[mask.getId()] = mask;
-    }
-    return result;
-  }
-
-  private EncryptionKey[] sortKeys(Map<String,EncryptionKey> keys) {
-    EncryptionKey[] results = new EncryptionKey[keys.size()];
-    for(EncryptionKey key: keys.values()) {
-      results[key.getId()] = key;
-    }
-    return results;
-  }
-
   private static final class BufferCollector implements PhysicalWriter.OutputReceiver {
-    private final List<ByteBuffer> output = new ArrayList<>();
+    private final ByteString.Output output = ByteString.newOutput();
 
     @Override
     public void output(ByteBuffer buffer) {
-      output.add(buffer);
+      output.write(buffer.array(), buffer.arrayOffset() + buffer.position(),
+          buffer.remaining());
     }
 
     @Override
     public void suppress() {
-      output.clear();
+      output.reset();
     }
 
     ByteString toByteString() {
-      int length = 0;
-      for(ByteBuffer buf: output) {
-        length += buf.remaining();
-      }
-      ByteString bs = null;
+      return output.toByteString();
     }
   }
 
   private OrcProto.EncryptionKey writeKey(EncryptionKey key) {
     OrcProto.EncryptionKey.Builder result = OrcProto.EncryptionKey.newBuilder();
-    HadoopShims.KeyMetadata meta = key.getKeyVersion();
+    HadoopShims.KeyMetadata meta = key.getMetadata();
     result.setKeyName(meta.getKeyName());
     result.setKeyVersion(meta.getVersion());
     result.setAlgorithm(OrcProto.EncryptionAlgorithm.valueOf(
         meta.getAlgorithm().getSerialization()));
+    result.addKeyIv(ByteString.copyFrom(key.getKeyIv()));
     for(ColumnEncryption column: key.getRoots()) {
       result.addRootId(column.getRoot());
-      result.addUnencryptedMask(column.getUnencryptedMask().getId());
+      result.addUnencryptedMask(column.getUnencryptedMask());
     }
     return result.build();
   }
 
   private ByteString encryptFileStats(CompressionCodec codec,
-                                      EncryptionKey key,
+                                      ColumnEncryption key,
                                       List<OrcProto.ColumnStatistics.Builder> stats
                                       ) throws IOException {
     BufferCollector buffer = new BufferCollector();
-    ColumnEncryption ce = key.getRoots().get(0);
-    new OutStream(new StreamName("file stats"), bufferSize, codec,
-        key.getKeyVersion().getAlgorithm(),
-        ce.getMaterial(), buffer);
+    OutStream stream = new OutStream(
+        new StreamName(0, OrcProto.Stream.Kind.FILE_STATISTICS, key.getId()),
+        bufferSize, codec, key, key.getFileStatsKey(), buffer);
+    OrcProto.EncryptedFileStatistics.Builder builder =
+        OrcProto.EncryptedFileStatistics.newBuilder();
+    for(OrcProto.ColumnStatistics.Builder stat: stats) {
+      builder.addColumn(stat.build());
+    }
+    builder.build().writeTo(stream);
+    stream.flush();
+    return buffer.toByteString();
   }
 
-  private void writeEncryptionFooter(OrcProto.Footer.Builder builder) {
+  private void writeEncryptionFooter(OrcProto.Footer.Builder builder
+                                     ) throws IOException {
     OrcProto.Encryption.Builder encrypt = OrcProto.Encryption.newBuilder();
-    encrypt.setFileId(ByteString.copyFrom(fileId));
-    for(MaskDescription mask: sortMasks(masks)) {
+    for(MaskDescription mask: masks) {
       OrcProto.DataMask.Builder maskBuilder = OrcProto.DataMask.newBuilder();
       maskBuilder.setName(mask.getStyle());
       String[] params = mask.getParameters();
@@ -613,13 +613,14 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       }
       encrypt.addMask(maskBuilder);
     }
-    EncryptionKey[] keysList = sortKeys(keys);
-    for(EncryptionKey key: keysList) {
-      encrypt.addKey(writeKey(key));
+    for(EncryptionKey key: keys) {
+      if (key != EncryptionKey.UNENCRYPTED) {
+        encrypt.addKey(writeKey(key));
+      }
     }
     CompressionCodec codec = getCompressionCodec();
     for(int k = 1; k < fileStatistics.length; ++k) {
-      encrypt.addFileStatistics(encryptFileStats(codec, keysList[k - 1],
+      encrypt.addFileStatistics(encryptFileStats(codec, keys[k - 1],
           fileStatistics[k]));
     }
     builder.setEncryption(encrypt);
@@ -815,28 +816,30 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     return false;
   }
 
-  EncryptionKey getKey(String keyName,
-                       HadoopShims.KeyProvider provider) throws IOException {
+  static EncryptionKey getKey(Map<String,EncryptionKey> keys,
+                              String keyName,
+                              HadoopShims.KeyProvider provider) throws IOException {
     EncryptionKey result = keys.get(keyName);
     if (result == null) {
       HadoopShims.KeyMetadata keyVersion =
           provider.getCurrentKeyVersion(keyName);
-      result = new EncryptionKey(keyVersion, keys.size());
+      result = new EncryptionKey(keyVersion, keys.size() + 1);
       keys.put(keyName, result);
     }
     return result;
   }
 
-  MaskDescription getMask(OrcFile.EncryptionOption opt) {
-    MaskDescription result = new MaskDescription(opt.getMask(),
-        masks.size(), opt.getMaskParameters());
-    int index = masks.indexOf(result);
-    if (index != -1) {
-      return masks.get(index);
-    } else {
-      masks.add(result);
-      return result;
+  int getMask(Map<MaskDescription,Integer> masks,
+              OrcFile.EncryptionOption opt) {
+    MaskDescription mask = new MaskDescription(opt.getMask(),
+        opt.getMaskParameters());
+
+    Integer id = masks.get(mask);
+    if (id == null) {
+      id = masks.size();
+      masks.put(mask, id);
     }
+    return id;
   }
 
   /**
@@ -850,17 +853,30 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     if (provider == null) {
       provider = SHIMS.getKeyProvider(conf);
     }
+    Map<String,EncryptionKey> keys = new HashMap<>();
+    Map<MaskDescription, Integer> masks = new HashMap<>();
     // fill out the primary encryption keys
     for(OrcFile.EncryptionOption option: options) {
-      EncryptionKey key = getKey(option.getKeyName(), provider);
-      MaskDescription mask = getMask(option);
+      EncryptionKey key = getKey(keys, option.getKeyName(), provider);
+      int mask = getMask(masks, option);
       int root = option.getColumnId();
-      byte[] keyIv = CryptoUtils.createIvForPassword(key.getKeyVersion().getAlgorithm(), fileId, root);
-      Key material = provider.getLocalKey(key.getKeyVersion(), keyIv);
-      ColumnEncryption column =
-          new ColumnEncryption(key, root, mask, material);
+      HadoopShims.KeyMetadata metadata = key.getMetadata();
+      byte[] columnIv = CryptoUtils.createIvForPassword(metadata.getAlgorithm(),
+          key.getKeyIv(), root);
+      Key material = provider.getLocalKey(metadata, columnIv);
+      ColumnEncryption column = new ColumnEncryption(key, root, mask, material);
       key.addRoot(column);
       encryption[root] = column;
+    }
+    // Now that we have de-duped the keys and masks, make the arrays
+    this.keys = new EncryptionKey[keys.size() + 1];
+    this.keys[0] = EncryptionKey.UNENCRYPTED;
+    for(EncryptionKey key: keys.values()) {
+      this.keys[key.getId()] = key;
+    }
+    this.masks = new MaskDescription[masks.size()];
+    for(Map.Entry<MaskDescription,Integer> mask: masks.entrySet()) {
+      this.masks[mask.getValue()] = mask.getKey();
     }
   }
 }

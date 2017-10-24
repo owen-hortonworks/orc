@@ -20,6 +20,7 @@ package org.apache.orc.impl;
 import org.apache.orc.CompressionCodec;
 import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.PhysicalWriter;
+import org.apache.orc.impl.writer.ColumnEncryption;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -70,29 +71,38 @@ public class OutStream extends PositionedOutputStream {
   private final Cipher cipher;
   private final EncryptionAlgorithm algorithm;
   private final Key key;
-  private int stripeId = 1;
+  private int stripeId = 0;
 
   public OutStream(String name,
                    int bufferSize,
                    CompressionCodec codec,
                    PhysicalWriter.OutputReceiver receiver) throws IOException {
-    this(new StreamName(name), bufferSize, codec, null, null, receiver);
+    this.name = null;
+    this.bufferSize = bufferSize;
+    this.codec = codec;
+    cipher = null;
+    algorithm = null;
+    key = null;
+    this.receiver = receiver;
   }
 
   public OutStream(StreamName name,
                    int bufferSize,
                    CompressionCodec codec,
-                   EncryptionAlgorithm algorithm,
-                   Key columnKey,
+                   ColumnEncryption key,
                    PhysicalWriter.OutputReceiver receiver) throws IOException {
     this.name = name;
     this.bufferSize = bufferSize;
     this.codec = codec;
     this.receiver = receiver;
-    this.algorithm = algorithm;
-    this.cipher = algorithm.createCipher();
-    this.key = columnKey;
-    if (cipher != null) {
+    if (key == null) {
+      this.cipher = null;
+      this.algorithm = null;
+      this.key = null;
+    } else {
+      this.algorithm = key.getKey().getMetadata().getAlgorithm();
+      this.cipher = algorithm.createCipher();
+      this.key = key.getMaterial();
       startEncryption();
     }
   }
@@ -101,7 +111,8 @@ public class OutStream extends PositionedOutputStream {
    * Setup the cipher with the correct key and IV.
    */
   void startEncryption() {
-    byte[] iv = CryptoUtils.createIvForStream(algorithm, name, stripeId++);
+    byte[] iv = CryptoUtils.createIvForStream(algorithm,
+        name, stripeId++);
     try {
       cipher.init(Cipher.ENCRYPT_MODE, key, new IvParameterSpec(iv));
     } catch (InvalidKeyException e) {

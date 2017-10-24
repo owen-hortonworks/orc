@@ -20,8 +20,11 @@ package org.apache.orc;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.security.Key;
 
 import org.apache.orc.impl.StreamName;
+import org.apache.orc.impl.writer.ColumnEncryption;
+import org.apache.orc.impl.writer.EncryptionKey;
 
 /**
  * This interface separates the physical layout of ORC files from the higher
@@ -67,20 +70,24 @@ public interface PhysicalWriter {
    * @param name the name of the stream
    * @param index the bloom filter to write
    * @param codec the compression codec to use
+   * @key key the encryption key to use
    */
   void writeIndex(StreamName name,
                   OrcProto.RowIndex.Builder index,
-                  CompressionCodec codec) throws IOException;
+                  CompressionCodec codec,
+                  ColumnEncryption key) throws IOException;
 
   /**
    * Write a bloom filter index in the given stream name.
    * @param name the name of the stream
    * @param bloom the bloom filter to write
    * @param codec the compression codec to use
+   * @param key the encryption key to use
    */
   void writeBloomFilter(StreamName name,
                         OrcProto.BloomFilterIndex.Builder bloom,
-                        CompressionCodec codec) throws IOException;
+                        CompressionCodec codec,
+                        ColumnEncryption key) throws IOException;
 
   /**
    * Flushes the data in all the streams, spills them to disk, write out stripe
