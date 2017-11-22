@@ -18,6 +18,7 @@
 
 package org.apache.orc.impl;
 
+import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.OrcProto;
 import org.junit.Test;
 
@@ -30,8 +31,8 @@ public class TestCryptoUtils {
 
   @Test
   public void testFileId() throws Exception {
-    byte[] file1 = CryptoUtils.createFileId();
-    byte[] file2 = CryptoUtils.createFileId();
+    byte[] file1 = CryptoUtils.createKeyIv(EncryptionAlgorithm.AES_128);
+    byte[] file2 = CryptoUtils.createKeyIv(EncryptionAlgorithm.AES_128);
     assertEquals(13, file1.length);
     assertEquals(file1.length, file2.length);
     assertNotEquals(Arrays.asList(file1), Arrays.asList(file2));
@@ -43,7 +44,8 @@ public class TestCryptoUtils {
     for(int i=0; i < fileId.length; ++i) {
       fileId[i] = (byte) (0x11 * (i + 1));
     }
-    byte[] iv = CryptoUtils.createIvForPassword(fileId, 0x123456);
+    byte[] iv = CryptoUtils.createIvForPassword(EncryptionAlgorithm.AES_128,
+        fileId, 0x123456);
     assertEquals(16, iv.length);
     assertEquals(0x12, iv[0]);
     assertEquals(0x34, iv[1]);
@@ -55,7 +57,8 @@ public class TestCryptoUtils {
 
   @Test
   public void testCreateStreamIv() throws Exception {
-    byte[] iv = CryptoUtils.createIvForStream(new StreamName(0x234567,
+    byte[] iv = CryptoUtils.createIvForStream(EncryptionAlgorithm.AES_128,
+        new StreamName(0x234567,
         OrcProto.Stream.Kind.BLOOM_FILTER_UTF8), 0x123456);
     assertEquals(16, iv.length);
     assertEquals(0x23, iv[0]);

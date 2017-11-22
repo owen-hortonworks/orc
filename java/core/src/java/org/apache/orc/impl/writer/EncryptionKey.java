@@ -18,6 +18,7 @@
 
 package org.apache.orc.impl.writer;
 
+import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.impl.CryptoUtils;
 import org.apache.orc.impl.HadoopShims;
 import org.apache.orc.impl.StreamName;
@@ -60,6 +61,10 @@ public class EncryptionKey {
 
   public List<ColumnEncryption> getRoots() {
     return roots;
+  }
+
+  public EncryptionAlgorithm getAlgorithm() {
+    return metadata.getAlgorithm();
   }
 
   public int getId() {

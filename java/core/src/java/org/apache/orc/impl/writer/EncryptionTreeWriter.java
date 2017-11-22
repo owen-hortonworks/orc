@@ -174,8 +174,8 @@ public class EncryptionTreeWriter implements TreeWriter {
         final StreamName name = new StreamName(column, kind, key.getId());
         CompressionCodec codec = getCustomizedCodec(kind);
         return new OutStream(name, getBufferSize(), codec,
-            encryption.getKey(), encryption.getMaterial(),
-            getReceiver(name));
+            encryption.getKey().getAlgorithm(),
+            encryption.getMaterial(), getReceiver(name));
       }
     }
 
@@ -225,16 +225,19 @@ public class EncryptionTreeWriter implements TreeWriter {
     }
 
     @Override
-    public void writeIndex(StreamName name, OrcProto.RowIndex.Builder index) throws IOException {
+    public void writeIndex(StreamName name,
+                           OrcProto.RowIndex.Builder index) throws IOException {
       parent.getPhysicalWriter().writeIndex(name, index,
-          getCustomizedCodec(name.getKind()), encryption);
+          getCustomizedCodec(name.getKind()),
+          encryption.getKey().getAlgorithm(), encryption.getMaterial());
     }
 
     @Override
     public void writeBloomFilter(StreamName name,
                                  OrcProto.BloomFilterIndex.Builder bloom) throws IOException {
       parent.getPhysicalWriter().writeBloomFilter(name, bloom,
-          getCustomizedCodec(name.getKind()), encryption);
+          getCustomizedCodec(name.getKind()),
+          encryption.getKey().getAlgorithm(), encryption.getMaterial());
     }
 
     @Override

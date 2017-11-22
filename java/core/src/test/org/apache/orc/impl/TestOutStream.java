@@ -23,6 +23,8 @@ import org.apache.orc.CompressionCodec;
 import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
+import org.apache.orc.impl.writer.ColumnEncryption;
+import org.apache.orc.impl.writer.EncryptionKey;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -67,7 +69,7 @@ public class TestOutStream {
 
     OutStream.assertBufferSizeValid((1<<23) -  1);
   }
-    
+
   @Test
   public void testEncryption() throws Exception {
     TestInStream.OutputCollector receiver = new TestInStream.OutputCollector();
@@ -76,9 +78,9 @@ public class TestOutStream {
     for(int i=0; i < keyBytes.length; ++i) {
       keyBytes[i] = (byte) i;
     }
-    Key key = new SecretKeySpec(keyBytes, algo.getAlgorithm());
+    Key material = new SecretKeySpec(keyBytes, algo.getAlgorithm());
     StreamName name = new StreamName(0x34, OrcProto.Stream.Kind.DATA);
-    OutStream stream = new OutStream(name, 50, null, algo.createCipher(), key,
+    OutStream stream = new OutStream(name, 50, null, algo, material,
         receiver);
     byte[] data = new byte[210];
     for(int i=0; i < data.length; ++i) {
@@ -86,7 +88,7 @@ public class TestOutStream {
     }
 
     // make 17 empty stripes for the stream
-    for(int i=0; i < 17; ++i) {
+    for(int i=0; i < 18; ++i) {
       stream.flush();
     }
 
@@ -170,10 +172,10 @@ public class TestOutStream {
     for(int i=0; i < keyBytes.length; ++i) {
       keyBytes[i] = (byte) (i * 13);
     }
-    Key key = new SecretKeySpec(keyBytes, algo.getAlgorithm());
+    Key material = new SecretKeySpec(keyBytes, algo.getAlgorithm());
     StreamName name = new StreamName(0x1, OrcProto.Stream.Kind.DATA);
     OutStream stream = new OutStream(name, 1024, new ZlibCodec(),
-        algo.createCipher(), key, receiver);
+        algo, material, receiver);
     for(int i=0; i < 10000; ++i) {
       stream.write(("The Cheesy Poofs " + i + "\n")
           .getBytes(StandardCharsets.UTF_8));
@@ -184,8 +186,8 @@ public class TestOutStream {
 
     // decrypt it
     Cipher decrypt = algo.createCipher();
-    byte[] iv = CryptoUtils.createIvForStream(name, 1);
-    decrypt.init(Cipher.DECRYPT_MODE, key, new IvParameterSpec(iv));
+    byte[] iv = CryptoUtils.createIvForStream(algo, name, 0);
+    decrypt.init(Cipher.DECRYPT_MODE, material, new IvParameterSpec(iv));
     byte[] compressed = decrypt.doFinal(encrypted);
 
     // use InStream to decompress it

@@ -128,7 +128,7 @@ public class TestInStream {
       out.write(i);
     }
     out.flush();
-    assertEquals("test", out.toString());
+    assertEquals("Stream for column 0 kind DATA", out.toString());
     assertEquals(961, collect.buffer.size());
     ByteBuffer inBuf = ByteBuffer.allocate(collect.buffer.size());
     collect.buffer.setByteBuffer(inBuf, 0, collect.buffer.size());
@@ -204,7 +204,7 @@ public class TestInStream {
       stream.writeInt(i);
     }
     out.flush();
-    assertEquals("test", out.toString());
+    assertEquals("Stream for column 0 kind DATA", out.toString());
     assertEquals(1674, collect.buffer.size());
     ByteBuffer[] inBuf = new ByteBuffer[3];
     inBuf[0] = ByteBuffer.allocate(500);
@@ -268,7 +268,7 @@ public class TestInStream {
       stream.writeInt(i);
     }
     out.flush();
-    assertEquals("test", out.toString());
+    assertEquals("Stream for column 0 kind DATA", out.toString());
     assertEquals(4096, collect.buffer.size());
     ByteBuffer[] inBuf = new ByteBuffer[3];
     inBuf[0] = ByteBuffer.allocate(1100);

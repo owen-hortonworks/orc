@@ -19,8 +19,8 @@ package org.apache.orc.impl;
 
 import org.apache.orc.CompressionCodec;
 import org.apache.orc.EncryptionAlgorithm;
+import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
-import org.apache.orc.impl.writer.ColumnEncryption;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -77,32 +77,28 @@ public class OutStream extends PositionedOutputStream {
                    int bufferSize,
                    CompressionCodec codec,
                    PhysicalWriter.OutputReceiver receiver) throws IOException {
-    this.name = null;
-    this.bufferSize = bufferSize;
-    this.codec = codec;
-    cipher = null;
-    algorithm = null;
-    key = null;
-    this.receiver = receiver;
+    this(new StreamName(0, OrcProto.Stream.Kind.DATA), bufferSize, codec, null,
+        null, receiver);
   }
 
   public OutStream(StreamName name,
                    int bufferSize,
                    CompressionCodec codec,
-                   ColumnEncryption key,
+                   EncryptionAlgorithm encryption,
+                   Key material,
                    PhysicalWriter.OutputReceiver receiver) throws IOException {
     this.name = name;
     this.bufferSize = bufferSize;
     this.codec = codec;
     this.receiver = receiver;
-    if (key == null) {
+    if (encryption == null || material == null) {
       this.cipher = null;
       this.algorithm = null;
       this.key = null;
     } else {
-      this.algorithm = key.getKey().getMetadata().getAlgorithm();
+      this.algorithm = encryption;
       this.cipher = algorithm.createCipher();
-      this.key = key.getMaterial();
+      this.key = material;
       startEncryption();
     }
   }

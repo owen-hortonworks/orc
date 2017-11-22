@@ -70,24 +70,28 @@ public interface PhysicalWriter {
    * @param name the name of the stream
    * @param index the bloom filter to write
    * @param codec the compression codec to use
-   * @key key the encryption key to use
+   * @param algorithm the encryption to use
+   * @param material the encryption key to use
    */
   void writeIndex(StreamName name,
                   OrcProto.RowIndex.Builder index,
                   CompressionCodec codec,
-                  ColumnEncryption key) throws IOException;
+                  EncryptionAlgorithm algorithm,
+                  Key material) throws IOException;
 
   /**
    * Write a bloom filter index in the given stream name.
    * @param name the name of the stream
    * @param bloom the bloom filter to write
    * @param codec the compression codec to use
-   * @param key the encryption key to use
+   * @param encryption the encryption algorithm to use
+   * @param material the encryption key to use
    */
   void writeBloomFilter(StreamName name,
                         OrcProto.BloomFilterIndex.Builder bloom,
                         CompressionCodec codec,
-                        ColumnEncryption key) throws IOException;
+                        EncryptionAlgorithm encryption,
+                        Key material) throws IOException;
 
   /**
    * Flushes the data in all the streams, spills them to disk, write out stripe

@@ -21,6 +21,7 @@ package org.apache.orc.impl;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.security.Key;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.orc.CompressionCodec;
 import org.apache.orc.CompressionKind;
+import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
@@ -99,7 +101,7 @@ public class PhysicalFsWriter implements PhysicalWriter {
     rawStream = new DirectStream(rawWriter);
     stripeFooterWriter =
         new OutStream(new StreamName(0, OrcProto.Stream.Kind.STRIPE_FOOTER),
-            bufferSize, codec, null, rawStream);
+            bufferSize, codec, null, null, rawStream);
     stripeFooterStream = CodedOutputStream.newInstance(stripeFooterWriter);
   }
 
@@ -193,7 +195,7 @@ public class PhysicalFsWriter implements PhysicalWriter {
     long startPosn = rawWriter.getPos();
     OutStream writer =
         new OutStream(new StreamName(0, OrcProto.Stream.Kind.STRIPE_STATISTICS),
-            bufferSize, codec, null, rawStream);
+            bufferSize, codec, null, null, rawStream);
     OrcProto.Metadata metadata = builder.build();
     metadata.writeTo(writer);
     writer.flush();
@@ -209,7 +211,7 @@ public class PhysicalFsWriter implements PhysicalWriter {
     OrcProto.Footer footer = builder.build();
     OutStream writer =
         new OutStream(new StreamName(0, OrcProto.Stream.Kind.FILE_FOOTER),
-            bufferSize, codec, null, rawStream);
+            bufferSize, codec, null, null, rawStream);
     footer.writeTo(writer);
     writer.flush();
     this.footerLength = (int) (rawWriter.getPos() - startPosn);
@@ -432,9 +434,10 @@ public class PhysicalFsWriter implements PhysicalWriter {
   public void writeIndex(StreamName name,
                          OrcProto.RowIndex.Builder index,
                          CompressionCodec codec,
-                         ColumnEncryption key) throws IOException {
-    OutputStream stream = new OutStream(name, bufferSize, codec, key,
-        createDataStream(name));
+                         EncryptionAlgorithm encryption,
+                         Key material) throws IOException {
+    OutputStream stream = new OutStream(name, bufferSize, codec,
+        encryption, material, createDataStream(name));
     index.build().writeTo(stream);
     stream.flush();
   }
@@ -443,9 +446,10 @@ public class PhysicalFsWriter implements PhysicalWriter {
   public void writeBloomFilter(StreamName name,
                                OrcProto.BloomFilterIndex.Builder bloom,
                                CompressionCodec codec,
-                               ColumnEncryption key) throws IOException {
-    OutputStream stream = new OutStream(name, bufferSize, codec, key,
-        createDataStream(name));
+                               EncryptionAlgorithm encryption,
+                               Key material) throws IOException {
+    OutputStream stream = new OutStream(name, bufferSize, codec,
+        encryption, material, createDataStream(name));
     bloom.build().writeTo(stream);
     stream.flush();
   }

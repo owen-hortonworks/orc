@@ -26,7 +26,6 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TimeZone;
 import java.util.TreeMap;
 
@@ -184,6 +183,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     List<OrcFile.EncryptionOption> encryptionOptions = opts.getEncryption();
     if (encryptionOptions.isEmpty()) {
       encryption = null;
+      keys = new EncryptionKey[]{EncryptionKey.UNENCRYPTED};
     } else {
       encryption = new ColumnEncryption[schema.getMaximumId() + 1];
       setupEncryption(opts.getKeyProvider(), encryptionOptions);
@@ -311,7 +311,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       final StreamName name = new StreamName(column, kind);
       CompressionCodec codec = getCustomizedCodec(kind);
 
-      return new OutStream(name, bufferSize, codec, null,
+      return new OutStream(name, bufferSize, codec, null, null,
           physicalWriter.createDataStream(name));
     }
 
@@ -383,14 +383,15 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
 
     public void writeIndex(StreamName name,
                            OrcProto.RowIndex.Builder index) throws IOException {
-      physicalWriter.writeIndex(name, index, getCustomizedCodec(name.getKind()), null);
+      physicalWriter.writeIndex(name, index, getCustomizedCodec(name.getKind()),
+          null, null);
     }
 
     public void writeBloomFilter(StreamName name,
                                  OrcProto.BloomFilterIndex.Builder bloom
                                  ) throws IOException {
       physicalWriter.writeBloomFilter(name, bloom,
-          getCustomizedCodec(name.getKind()), null);
+          getCustomizedCodec(name.getKind()), null, null);
     }
 
     @Override
@@ -456,7 +457,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
 
     @Override
     public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
-      fileStatistics[getKey().getId() + 1].add(stats);
+      fileStatistics[getKey().getId()].add(stats);
     }
 
     @Override
@@ -582,13 +583,15 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   }
 
   private ByteString encryptFileStats(CompressionCodec codec,
-                                      ColumnEncryption key,
+                                      ColumnEncryption columnEncryption,
                                       List<OrcProto.ColumnStatistics.Builder> stats
                                       ) throws IOException {
     BufferCollector buffer = new BufferCollector();
+    EncryptionKey key = columnEncryption.getKey();
     OutStream stream = new OutStream(
         new StreamName(0, OrcProto.Stream.Kind.FILE_STATISTICS, key.getId()),
-        bufferSize, codec, key, key.getFileStatsKey(), buffer);
+        bufferSize, codec, key.getAlgorithm(), columnEncryption.getMaterial(),
+        buffer);
     OrcProto.EncryptedFileStatistics.Builder builder =
         OrcProto.EncryptedFileStatistics.newBuilder();
     for(OrcProto.ColumnStatistics.Builder stat: stats) {
@@ -620,7 +623,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
     CompressionCodec codec = getCompressionCodec();
     for(int k = 1; k < fileStatistics.length; ++k) {
-      encrypt.addFileStatistics(encryptFileStats(codec, keys[k - 1],
+      encrypt.addFileStatistics(encryptFileStats(codec,
+          keys[k - 1].getRoots().get(0),
           fileStatistics[k]));
     }
     builder.setEncryption(encrypt);
@@ -821,9 +825,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
                               HadoopShims.KeyProvider provider) throws IOException {
     EncryptionKey result = keys.get(keyName);
     if (result == null) {
-      HadoopShims.KeyMetadata keyVersion =
-          provider.getCurrentKeyVersion(keyName);
-      result = new EncryptionKey(keyVersion, keys.size() + 1);
+      result = new EncryptionKey(provider, keyName, keys.size() + 1);
       keys.put(keyName, result);
     }
     return result;
