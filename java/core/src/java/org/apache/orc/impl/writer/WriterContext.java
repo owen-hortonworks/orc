@@ -129,10 +129,12 @@ public interface WriterContext {
 
   /**
    * Write the column statistics for the file tail.
-   * @param column
-   * @param stats
+   * @param column the column id
+   * @param key the encryption key
+   * @param stats the builder to add the statistics to
    */
-  void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats);
+  void writeFileStatistics(int column, int key,
+                           OrcProto.ColumnStatistics.Builder stats);
 
   /**
    * Get the PhysicalWriter.

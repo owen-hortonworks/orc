@@ -104,7 +104,6 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     new ArrayList<>();
   private final OrcProto.Metadata.Builder fileMetadata =
       OrcProto.Metadata.newBuilder();
-  private final List<OrcProto.ColumnStatistics.Builder>[] fileStatistics;
   private final Map<String, ByteString> userMetadata =
     new TreeMap<>();
   private final TreeWriter treeWriter;
@@ -120,6 +119,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   private final double bloomFilterFpp;
   private final OrcFile.BloomFilterVersion bloomFilterVersion;
   private final boolean writeTimeZone;
+
+  // encryption and masking
   private MaskDescription[] masks;
   private EncryptionKey[] keys;
   private final ColumnEncryption[] encryption;
@@ -189,14 +190,6 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       setupEncryption(opts.getKeyProvider(), encryptionOptions);
     }
 
-    // set up fileStatistics with one per a key (and index 0 for unencrypted)
-    @SuppressWarnings("unchecked")
-    List<OrcProto.ColumnStatistics.Builder>[] tmp =
-        (List<OrcProto.ColumnStatistics.Builder>[]) new List[keys.length];
-    fileStatistics = tmp;
-    for(int k=0; k < fileStatistics.length; ++k) {
-      fileStatistics[k] = new ArrayList<>();
-    }
     treeWriter = TreeWriter.Factory.create(schema, new StreamFactory(), false);
     if (buildIndex && rowIndexStride < MIN_ROW_INDEX_STRIDE) {
       throw new IllegalArgumentException("Row stride must be at least " +
@@ -456,7 +449,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
 
     @Override
-    public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
+    public void writeFileStatistics(int column, int key,
+                                    OrcProto.ColumnStatistics.Builder stats) {
       fileStatistics[getKey().getId()].add(stats);
     }
 
@@ -523,11 +517,15 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
   }
 
-  private void collectFileStatistics(TreeWriter writer) throws IOException {
-    for (List<OrcProto.ColumnStatistics.Builder> stats : fileStatistics) {
-      stats.clear();
+  private OrcProto.ColumnStatistics.Builder[] collectFileStatistics(
+      TreeWriter writer) throws IOException {
+    OrcProto.ColumnStatistics.Builder[] result =
+        new OrcProto.ColumnStatistics.Builder[keys.length];
+    for (int i=0; i < result.length; ++i) {
+      result[i] = OrcProto.ColumnStatistics.newBuilder();
     }
-    writer.writeFileStatistics();
+    writer.writeFileStatistics(result);
+    return result;
   }
 
   private void writeMetadata() throws IOException {
@@ -643,7 +641,8 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       builder.addStripes(stripe);
     }
     // add the column statistics
-    collectFileStatistics(treeWriter);
+    OrcProto.ColumnStatistics.Builder[] fileStatistics =
+        collectFileStatistics(treeWriter);
     // add the unencrypted stats
     for(OrcProto.ColumnStatistics.Builder stat: fileStatistics[0]) {
       builder.addStatistics(stat);
@@ -797,7 +796,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     OrcProto.Footer.Builder builder = OrcProto.Footer.newBuilder();
 
     // add the column statistics
-    collectFileStatistics(treeWriter);
+    writeFileStatistics(treeWriter);
     return ReaderImpl.deserializeStats(builder.getStatisticsList());
   }
 
