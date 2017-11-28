@@ -154,8 +154,8 @@ public class ListTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeFileStatistics() {
-    super.writeFileStatistics();
-    childWriter.writeFileStatistics();
+  public void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats) {
+    super.writeFileStatistics(stats);
+    childWriter.writeFileStatistics(stats);
   }
 }

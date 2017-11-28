@@ -148,9 +148,9 @@ public class EncryptionTreeWriter implements TreeWriter {
   }
 
   @Override
-  public void writeFileStatistics() {
+  public void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats) {
     for (TreeWriter child : childrenWriters) {
-      child.writeFileStatistics();
+      child.writeFileStatistics(stats);
     }
   }
 
@@ -271,11 +271,6 @@ public class EncryptionTreeWriter implements TreeWriter {
       return encryption == null ?
           EncryptionKey.UNENCRYPTED :
           encryption.getKey();
-    }
-
-    @Override
-    public void writeFileStatistics(int column, OrcProto.ColumnStatistics.Builder stats) {
-
     }
 
     @Override

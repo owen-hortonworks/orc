@@ -449,12 +449,6 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
 
     @Override
-    public void writeFileStatistics(int column, int key,
-                                    OrcProto.ColumnStatistics.Builder stats) {
-      fileStatistics[getKey().getId()].add(stats);
-    }
-
-    @Override
     public PhysicalWriter getPhysicalWriter() {
       return physicalWriter;
     }
@@ -517,12 +511,12 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     }
   }
 
-  private OrcProto.ColumnStatistics.Builder[] collectFileStatistics(
+  private OrcProto.FileStatistics.Builder[] writeFileStatistics(
       TreeWriter writer) throws IOException {
-    OrcProto.ColumnStatistics.Builder[] result =
-        new OrcProto.ColumnStatistics.Builder[keys.length];
+    OrcProto.FileStatistics.Builder[] result =
+        new OrcProto.FileStatistics.Builder[keys.length];
     for (int i=0; i < result.length; ++i) {
-      result[i] = OrcProto.ColumnStatistics.newBuilder();
+      result[i] = OrcProto.FileStatistics.newBuilder();
     }
     writer.writeFileStatistics(result);
     return result;
@@ -581,26 +575,21 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   }
 
   private ByteString encryptFileStats(CompressionCodec codec,
-                                      ColumnEncryption columnEncryption,
-                                      List<OrcProto.ColumnStatistics.Builder> stats
+                                      EncryptionKey key,
+                                      OrcProto.FileStatistics stats
                                       ) throws IOException {
     BufferCollector buffer = new BufferCollector();
-    EncryptionKey key = columnEncryption.getKey();
     OutStream stream = new OutStream(
         new StreamName(0, OrcProto.Stream.Kind.FILE_STATISTICS, key.getId()),
-        bufferSize, codec, key.getAlgorithm(), columnEncryption.getMaterial(),
+        bufferSize, codec, key.getAlgorithm(), key.getFileStatsKey(),
         buffer);
-    OrcProto.EncryptedFileStatistics.Builder builder =
-        OrcProto.EncryptedFileStatistics.newBuilder();
-    for(OrcProto.ColumnStatistics.Builder stat: stats) {
-      builder.addColumn(stat.build());
-    }
-    builder.build().writeTo(stream);
+    stats.writeTo(stream);
     stream.flush();
     return buffer.toByteString();
   }
 
-  private void writeEncryptionFooter(OrcProto.Footer.Builder builder
+  private void writeEncryptionFooter(OrcProto.Footer.Builder builder,
+                                     OrcProto.FileStatistics.Builder[] stats
                                      ) throws IOException {
     OrcProto.Encryption.Builder encrypt = OrcProto.Encryption.newBuilder();
     for(MaskDescription mask: masks) {
@@ -620,10 +609,9 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       }
     }
     CompressionCodec codec = getCompressionCodec();
-    for(int k = 1; k < fileStatistics.length; ++k) {
-      encrypt.addFileStatistics(encryptFileStats(codec,
-          keys[k - 1].getRoots().get(0),
-          fileStatistics[k]));
+    for(int k = 1; k < stats.length; ++k) {
+      encrypt.addFileStatistics(encryptFileStats(codec, keys[k],
+          stats[k].build()));
     }
     builder.setEncryption(encrypt);
   }
@@ -641,10 +629,10 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       builder.addStripes(stripe);
     }
     // add the column statistics
-    OrcProto.ColumnStatistics.Builder[] fileStatistics =
-        collectFileStatistics(treeWriter);
+    OrcProto.FileStatistics.Builder[] fileStatistics =
+        writeFileStatistics(treeWriter);
     // add the unencrypted stats
-    for(OrcProto.ColumnStatistics.Builder stat: fileStatistics[0]) {
+    for(OrcProto.ColumnStatistics stat: fileStatistics[0].getColumnList()) {
       builder.addStatistics(stat);
     }
     // add all of the user metadata
@@ -653,7 +641,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
         .setName(entry.getKey()).setValue(entry.getValue()));
     }
     if (encryption != null) {
-      writeEncryptionFooter(builder);
+      writeEncryptionFooter(builder, fileStatistics);
     }
     builder.setWriter(OrcFile.WriterImplementation.ORC_JAVA.getId());
     physicalWriter.writeFileFooter(builder);
@@ -790,14 +778,10 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
   }
 
   @Override
-  public ColumnStatistics[] getStatistics()
-      throws IOException {
-    // Generate the stats
-    OrcProto.Footer.Builder builder = OrcProto.Footer.newBuilder();
-
-    // add the column statistics
-    writeFileStatistics(treeWriter);
-    return ReaderImpl.deserializeStats(builder.getStatisticsList());
+  public ColumnStatistics[] getStatistics() throws IOException {
+    // get the column statistics
+    OrcProto.FileStatistics.Builder[] stats = writeFileStatistics(treeWriter);
+    return ReaderImpl.deserializeStats(stats[0].getColumnList());
   }
 
   public CompressionCodec getCompressionCodec() {

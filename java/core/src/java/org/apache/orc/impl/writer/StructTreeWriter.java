@@ -147,10 +147,10 @@ public class StructTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeFileStatistics() {
-    super.writeFileStatistics();
+  public void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats) {
+    super.writeFileStatistics(stats);
     for (TreeWriter child : childrenWriters) {
-      child.writeFileStatistics();
+      child.writeFileStatistics(stats);
     }
   }
 }

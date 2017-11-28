@@ -91,10 +91,10 @@ public interface TreeWriter {
   void updateFileStatistics(OrcProto.StripeStatistics stripeStatistics);
 
   /**
-   * Add the file statistics to the file footer.
-   * The TreeWriter should use the WriterContext to write it out.
+   * Get the FileStatistics for each encryption key.
+   * @param stats a FileStatistics builder for each encryption key
    */
-  void writeFileStatistics();
+  void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats);
 
   public class Factory {
     public static TreeWriter create(TypeDescription schema,

@@ -230,7 +230,7 @@ enum EncryptionAlgorithm {
   AES_256 = 2;
 }
 
-message EncryptedFileStatistics {
+message FileStatistics {
   repeated ColumnStatistics column = 1;
 }
 

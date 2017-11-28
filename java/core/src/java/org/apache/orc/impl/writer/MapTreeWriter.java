@@ -165,9 +165,9 @@ public class MapTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeFileStatistics() {
-    super.writeFileStatistics();
-    keyWriter.writeFileStatistics();
-    valueWriter.writeFileStatistics();
+  public void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats) {
+    super.writeFileStatistics(stats);
+    keyWriter.writeFileStatistics(stats);
+    valueWriter.writeFileStatistics(stats);
   }
 }

@@ -354,8 +354,8 @@ public abstract class TreeWriterBase implements TreeWriter {
   }
 
   @Override
-  public void writeFileStatistics() {
-    context.writeFileStatistics(id, fileStatistics.serialize());
+  public void writeFileStatistics(OrcProto.FileStatistics.Builder[] stats) {
+    stats[context.getKey().getId()].addColumn(fileStatistics.serialize());
   }
 
   static class RowIndexPositionRecorder implements PositionRecorder {

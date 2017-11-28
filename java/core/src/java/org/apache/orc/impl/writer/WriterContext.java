@@ -29,8 +29,6 @@ import org.apache.orc.impl.OutStream;
 import org.apache.orc.impl.StreamName;
 
 import java.io.IOException;
-import java.security.Key;
-import java.util.List;
 
 public interface WriterContext {
 
@@ -126,15 +124,6 @@ public interface WriterContext {
    * @return the encryption key
    */
   EncryptionKey getKey();
-
-  /**
-   * Write the column statistics for the file tail.
-   * @param column the column id
-   * @param key the encryption key
-   * @param stats the builder to add the statistics to
-   */
-  void writeFileStatistics(int column, int key,
-                           OrcProto.ColumnStatistics.Builder stats);
 
   /**
    * Get the PhysicalWriter.
