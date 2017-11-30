@@ -24,7 +24,6 @@ import org.apache.orc.OrcProto;
 import org.apache.orc.TypeDescription;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * The writers for the specific writers of each type. This provides
@@ -72,17 +71,11 @@ public interface TreeWriter {
 
   /**
    * Write the stripe out to the file.
-   * @param stripeFooter the stripe footer that contains the information about the
-   *                layout of the stripe. The TreeWriterBase is required to update
-   *                the footer with its information.
-   * @param stats the stripe statistics information
    * @param requiredIndexEntries the number of index entries that are
    *                             required. this is to check to make sure the
    *                             row index is well formed.
    */
-  void writeStripe(OrcProto.StripeFooter.Builder stripeFooter,
-                   OrcProto.StripeStatistics.Builder stats,
-                   int requiredIndexEntries) throws IOException;
+  void writeStripe(int requiredIndexEntries) throws IOException;
 
   /**
    * During a stripe append, we need to update the file statistics.

@@ -95,9 +95,7 @@ public abstract class StringBaseTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeStripe(OrcProto.StripeFooter.Builder builder,
-                          OrcProto.StripeStatistics.Builder stats,
-                          int requiredIndexEntries) throws IOException {
+  public void writeStripe(int requiredIndexEntries) throws IOException {
     // if rows in stripe is less than dictionaryCheckAfterRows, dictionary
     // checking would not have happened. So do it again here.
     checkDictionaryEncoding();
@@ -116,7 +114,7 @@ public abstract class StringBaseTreeWriter extends TreeWriterBase {
 
     // we need to build the rowindex before calling super, since it
     // writes it out.
-    super.writeStripe(builder, stats, requiredIndexEntries);
+    super.writeStripe(requiredIndexEntries);
     if (useDictionaryEncoding) {
       stringOutput.flush();
       lengthOutput.flush();

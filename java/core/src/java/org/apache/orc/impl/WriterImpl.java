@@ -452,6 +452,16 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
     public PhysicalWriter getPhysicalWriter() {
       return physicalWriter;
     }
+
+    @Override
+    public void setEncoding(int column, OrcProto.ColumnEncoding encoding) {
+      physicalWriter.setColumnEncoding(column, getKey(), encoding);
+    }
+
+    @Override
+    public void setStripeStatistics(int column, OrcProto.ColumnStatistics stats) {
+      physicalWriter.appendStripeStatistics(column, getKey(), stats);
+    }
   }
 
 
@@ -483,7 +493,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       }
       OrcProto.StripeStatistics.Builder stats =
           OrcProto.StripeStatistics.newBuilder();
-      treeWriter.writeStripe(builder, stats, requiredIndexEntries);
+      treeWriter.writeStripe(requiredIndexEntries);
       fileMetadata.addStripeStats(stats.build());
       OrcProto.StripeInformation.Builder dirEntry =
           OrcProto.StripeInformation.newBuilder()

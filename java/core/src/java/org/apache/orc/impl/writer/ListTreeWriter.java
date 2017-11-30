@@ -119,12 +119,10 @@ public class ListTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeStripe(OrcProto.StripeFooter.Builder builder,
-                          OrcProto.StripeStatistics.Builder stats,
-                          int requiredIndexEntries) throws IOException {
-    super.writeStripe(builder, stats, requiredIndexEntries);
+  public void writeStripe(int requiredIndexEntries) throws IOException {
+    super.writeStripe(requiredIndexEntries);
     lengths.flush();
-    childWriter.writeStripe(builder, stats, requiredIndexEntries);
+    childWriter.writeStripe(requiredIndexEntries);
     if (rowIndexPosition != null) {
       recordPosition(rowIndexPosition);
     }

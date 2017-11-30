@@ -130,4 +130,18 @@ public interface WriterContext {
    * @return the file's physical writer.
    */
   PhysicalWriter getPhysicalWriter();
+
+  /**
+   * Set the encoding for the current stripe.
+   * @param column the column identifier
+   * @param encoding the encoding for this stripe
+   */
+  void setEncoding(int column, OrcProto.ColumnEncoding encoding);
+
+  /**
+   * Set the column statistics for the current stripe.
+   * @param column the column identifier
+   * @param stats the statistics for this column in this stripe
+   */
+  void setStripeStatistics(int column, OrcProto.ColumnStatistics stats);
 }

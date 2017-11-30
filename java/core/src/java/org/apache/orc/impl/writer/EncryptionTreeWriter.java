@@ -109,16 +109,9 @@ public class EncryptionTreeWriter implements TreeWriter {
   }
 
   @Override
-  public void writeStripe(OrcProto.StripeFooter.Builder builder,
-                          OrcProto.StripeStatistics.Builder stats,
-                          int requiredIndexEntries) throws IOException {
-    OrcProto.StripeEncryption.Builder stripeEncrypt =
-        builder.getEncryptionBuilder();
+  public void writeStripe(int requiredIndexEntries) throws IOException {
     for(int c = 0; c < childrenWriters.length; ++c) {
-      OrcProto.StripeFooter.Builder localFooter =
-          keys[c] == null ? builder :
-              stripeEncrypt.getFooterBuilder(keys[c].getKey().getId());
-      childrenWriters[c].writeStripe(localFooter, stats, requiredIndexEntries);
+      childrenWriters[c].writeStripe(requiredIndexEntries);
     }
   }
 
@@ -276,6 +269,16 @@ public class EncryptionTreeWriter implements TreeWriter {
     @Override
     public PhysicalWriter getPhysicalWriter() {
       return parent.getPhysicalWriter();
+    }
+
+    @Override
+    public void setEncoding(int column, OrcProto.ColumnEncoding encoding) {
+      parent.setEncoding(column, encoding);
+    }
+
+    @Override
+    public void setStripeStatistics(int column, OrcProto.ColumnStatistics stats) {
+      parent.setStripeStatistics(column, stats);
     }
   }
 }

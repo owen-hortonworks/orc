@@ -229,9 +229,8 @@ public abstract class TreeWriterBase implements TreeWriter {
     }
   }
 
-  public void writeStripe(OrcProto.StripeFooter.Builder builder,
-                          OrcProto.StripeStatistics.Builder stats,
-                          int requiredIndexEntries) throws IOException {
+  @Override
+  public void writeStripe(int requiredIndexEntries) throws IOException {
     if (isPresent != null) {
       isPresent.flush();
 
@@ -249,13 +248,13 @@ public abstract class TreeWriterBase implements TreeWriter {
     // merge stripe-level column statistics to file statistics and write it to
     // stripe statistics
     fileStatistics.merge(stripeColStatistics);
-    stats.addColStats(stripeColStatistics.serialize());
+    context.setStripeStatistics(id, stripeColStatistics.serialize().build());
     stripeColStatistics.reset();
 
     // reset the flag for next stripe
     foundNulls = false;
 
-    builder.addColumns(getEncoding());
+    context.setEncoding(id, getEncoding().build());
     if (rowIndex != null) {
       if (rowIndex.getEntryCount() != requiredIndexEntries) {
         throw new IllegalArgumentException("Column has wrong number of " +

@@ -94,6 +94,27 @@ public interface PhysicalWriter {
                         Key material) throws IOException;
 
   /**
+   * Set the column encoding for a stripe.
+   * @param column the column id
+   * @param key the encryption key
+   * @param encoding the encoding for this stripe.
+   * @throws IOException
+   */
+  void setColumnEncoding(int column, EncryptionKey key,
+                         OrcProto.ColumnEncoding encoding);
+
+  /**
+   * Append stripe statistics instance for a column. This should be called
+   * once per a column, encryption key, and stripe.
+   * @param column the column id
+   * @param key the encryption key
+   * @param stats the stripe statistics
+   * @throws IOException
+   */
+  void appendStripeStatistics(int column, EncryptionKey key,
+                              OrcProto.ColumnStatistics stats);
+
+  /**
    * Flushes the data in all the streams, spills them to disk, write out stripe
    * footer.
    * @param footer Stripe footer to be updated with relevant data and written out.

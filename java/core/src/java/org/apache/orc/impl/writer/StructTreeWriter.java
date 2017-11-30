@@ -108,12 +108,10 @@ public class StructTreeWriter extends TreeWriterBase {
   }
 
   @Override
-  public void writeStripe(OrcProto.StripeFooter.Builder builder,
-                          OrcProto.StripeStatistics.Builder stats,
-                          int requiredIndexEntries) throws IOException {
-    super.writeStripe(builder, stats, requiredIndexEntries);
+  public void writeStripe(int requiredIndexEntries) throws IOException {
+    super.writeStripe(requiredIndexEntries);
     for (TreeWriter child : childrenWriters) {
-      child.writeStripe(builder, stats, requiredIndexEntries);
+      child.writeStripe(requiredIndexEntries);
     }
     if (rowIndexPosition != null) {
       recordPosition(rowIndexPosition);

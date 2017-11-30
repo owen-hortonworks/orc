@@ -23,6 +23,7 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.security.Key;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -38,7 +39,9 @@ import org.apache.orc.EncryptionAlgorithm;
 import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
+import org.apache.orc.TypeDescription;
 import org.apache.orc.impl.writer.ColumnEncryption;
+import org.apache.orc.impl.writer.EncryptionKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,6 +54,7 @@ public class PhysicalFsWriter implements PhysicalWriter {
 
   private final FSDataOutputStream rawWriter;
   private final DirectStream rawStream;
+  private final TypeDescription schema;
   // the compressed metadata information outStream
   private OutStream stripeFooterWriter = null;
   // a protobuf outStream around streamFactory
@@ -76,12 +80,17 @@ public class PhysicalFsWriter implements PhysicalWriter {
   private int metadataLength;
   private int footerLength;
 
+  private Map<EncryptionKey, OrcProto.ColumnEncoding[]> columnEncoding =
+      new HashMap<>();
+  private Map<Enc>
+
   public PhysicalFsWriter(FileSystem fs,
                           Path path,
                           OrcFile.WriterOptions opts) throws IOException {
     this.path = path;
     this.defaultStripeSize = this.adjustedStripeSize = opts.getStripeSize();
     this.addBlockPadding = opts.getBlockPadding();
+    this.schema = opts.getSchema();
     if (opts.isEnforceBufferSize()) {
       this.bufferSize = opts.getBufferSize();
     } else {
@@ -452,6 +461,16 @@ public class PhysicalFsWriter implements PhysicalWriter {
         encryption, material, createDataStream(name));
     bloom.build().writeTo(stream);
     stream.flush();
+  }
+
+  @Override
+  public void setColumnEncoding(int column, EncryptionKey key, OrcProto.ColumnEncoding encoding) {
+
+  }
+
+  @Override
+  public void appendStripeStatistics(int column, EncryptionKey key, OrcProto.ColumnStatistics stats) {
+
   }
 
   @Override
