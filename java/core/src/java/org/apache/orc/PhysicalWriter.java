@@ -53,6 +53,12 @@ public interface PhysicalWriter {
   }
 
   /**
+   * Initialize the encryption.
+   * @param keys the list of encryption keys
+   */
+  void initializeEncryption(EncryptionKey[] keys);
+
+  /**
    * Writes the header of the file, which consists of the magic "ORC" bytes.
    * @throws IOException
    */

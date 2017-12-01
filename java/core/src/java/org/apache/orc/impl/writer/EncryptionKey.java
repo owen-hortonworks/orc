@@ -79,6 +79,22 @@ public class EncryptionKey {
     return fileStatsKey;
   }
 
+  @Override
+  public int hashCode() {
+    return id;
+  }
+
+  @Override
+  public boolean equals(Object other) {
+    if (other == this) {
+      return true;
+    }
+    if (other == null || other.getClass() != getClass()) {
+      return false;
+    }
+    return id == ((EncryptionKey) other).id;
+  }
+
   public static final EncryptionKey UNENCRYPTED;
 
   static {

@@ -189,6 +189,7 @@ public class WriterImpl implements Writer, MemoryManager.Callback {
       encryption = new ColumnEncryption[schema.getMaximumId() + 1];
       setupEncryption(opts.getKeyProvider(), encryptionOptions);
     }
+    physicalWriter.initializeEncryption(keys);
 
     treeWriter = TreeWriter.Factory.create(schema, new StreamFactory(), false);
     if (buildIndex && rowIndexStride < MIN_ROW_INDEX_STRIDE) {

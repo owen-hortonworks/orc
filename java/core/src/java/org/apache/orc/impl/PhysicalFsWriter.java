@@ -23,7 +23,6 @@ import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.security.Key;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -40,7 +39,6 @@ import org.apache.orc.OrcFile;
 import org.apache.orc.OrcProto;
 import org.apache.orc.PhysicalWriter;
 import org.apache.orc.TypeDescription;
-import org.apache.orc.impl.writer.ColumnEncryption;
 import org.apache.orc.impl.writer.EncryptionKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,9 +78,9 @@ public class PhysicalFsWriter implements PhysicalWriter {
   private int metadataLength;
   private int footerLength;
 
-  private Map<EncryptionKey, OrcProto.ColumnEncoding[]> columnEncoding =
-      new HashMap<>();
-  private Map<Enc>
+  private EncryptionKey[] keys;
+  private OrcProto.ColumnEncoding[][] columnEncoding;
+  private List<OrcProto.ColumnStatistics>[][] stripeStats;
 
   public PhysicalFsWriter(FileSystem fs,
                           Path path,
@@ -341,6 +339,7 @@ public class PhysicalFsWriter implements PhysicalWriter {
     long dataSize = 0;
     long encryptedIndexSize = 0;
     long encryptedDataSize = 0;
+    OrcProto.StripeFooter.Builder[] footers = new OrcProto.StripeFooter.Builder[keys]
     int lastKey = StreamName.UNENCRYPTED;
     OrcProto.StripeEncryption.Builder encryption = null;
     OrcProto.StripeFooter.Builder encryptedFooter = null;
@@ -424,6 +423,24 @@ public class PhysicalFsWriter implements PhysicalWriter {
   }
 
   @Override
+  public void initializeEncryption(EncryptionKey[] keys) {
+    this.keys = keys;
+    columnEncoding = new OrcProto.ColumnEncoding[keys.length][];
+    @SuppressWarnings("unchecked")
+    List<OrcProto.ColumnStatistics>[][] tmp =
+        (List<OrcProto.ColumnStatistics>[][]) new List[keys.length][];
+    stripeStats = tmp;
+    int cols = schema.getMaximumId() + 1;
+    for(int i=0; i < stripeStats.length; ++i) {
+      columnEncoding[i] = new OrcProto.ColumnEncoding[cols];
+      @SuppressWarnings("unchecked")
+      List<OrcProto.ColumnStatistics>[] inner =
+          (List<OrcProto.ColumnStatistics>[]) new List[cols];
+      stripeStats[i] = inner;
+    }
+  }
+
+  @Override
   public void writeHeader() throws IOException {
     rawWriter.writeBytes(OrcFile.MAGIC);
     headerLength = rawWriter.getPos();
@@ -465,12 +482,17 @@ public class PhysicalFsWriter implements PhysicalWriter {
 
   @Override
   public void setColumnEncoding(int column, EncryptionKey key, OrcProto.ColumnEncoding encoding) {
-
+    columnEncoding[key.getId()][column] = encoding;
   }
 
   @Override
   public void appendStripeStatistics(int column, EncryptionKey key, OrcProto.ColumnStatistics stats) {
-
+    List<OrcProto.ColumnStatistics> list = stripeStats[key.getId()][column];
+    if (list == null) {
+      list = new ArrayList<>();
+      stripeStats[key.getId()][column] = list;
+    }
+    list.add(stats);
   }
 
   @Override
